@@ -189,7 +189,7 @@ async function run() {
                  || aData.items[0];
 
         const cheapest = gItems.reduce((a, b) => a.price <= b.price ? a : b);
-        const isNew = cheapest.condition == null || cheapest.condition <= 2; // 1-2=新品扱い
+        const isNew = cheapest.condition == null || cheapest.condition === 1; // 1のみ新品扱い
         let aPrice = best ? (isNew ? best.priceNew : best.priceUsed) : null;
         // カート価格が無ければ最安出品価格を取得
         if (best && aPrice == null) {
