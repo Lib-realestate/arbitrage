@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>デルタサーチ | フリマ→Amazon 価格差分析</title>
+<style>
+  :root {
+    --bg: #12151c;
+    --panel: #1a1f2a;
+    --panel2: #222836;
+    --line: #2e3648;
+    --text: #dfe4ee;
+    --sub: #8b93a7;
+    --accent: #4fc3f7;
+    --plus: #55d68a;
+    --minus: #f2707a;
+    --mercari: #e5544b;
+    --amazon: #f0a13c;
+    --mono: "Consolas", "SF Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    font-size: 14px; padding: 18px; max-width: 1200px; margin: 0 auto;
+  }
+  h1 { font-size: 18px; letter-spacing: .08em; margin-bottom: 2px; }
+  h1 .delta { color: var(--accent); font-family: var(--mono); }
+  .tagline { color: var(--sub); font-size: 12px; margin-bottom: 16px; }
+
+  .searchbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  .searchbar input[type=text] {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 15px;
+  }
+  .searchbar input:focus { outline: 1px solid var(--accent); }
+  button.primary {
+    background: var(--accent); color: #0a121a; border: none; font-weight: 700;
+    padding: 10px 22px; border-radius: 6px; cursor: pointer; font-size: 15px;
+  }
+  button.primary:disabled { opacity: .4; cursor: default; }
+
+  .options { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 12px; margin-bottom: 14px; font-size: 12.5px; color: var(--sub); }
+  .options label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .options input[type=number] { width: 55px; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
+  .options input[type=text] { background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; width: 300px; }
+
+  #status { font-size: 12.5px; color: var(--sub); margin-bottom: 10px; min-height: 18px;
+    font-family: var(--mono); }
+  #status .err { color: var(--minus); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  th { background: var(--panel2); color: var(--sub); font-size: 11.5px; text-align: left;
+    padding: 8px 10px; cursor: pointer; user-select: none; white-space: nowrap; }
+  th.sorted { color: var(--accent); }
+  th .arrow { font-size: 9px; }
+  td { padding: 8px 10px; border-top: 1px solid var(--line); vertical-align: top; }
+  tr:hover td { background: #202636; }
+  td.num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+  .mpn { font-family: var(--mono); font-weight: 700; color: var(--accent); font-size: 13px; }
+  .cnt { color: var(--sub); font-size: 11px; }
+  .thumb { width: 46px; height: 46px; object-fit: cover; border-radius: 4px;
+    background: #000; display: block; }
+  .ttl { font-size: 12px; line-height: 1.45; max-width: 280px; }
+  .ttl a { color: var(--text); text-decoration: none; }
+  .ttl a:hover { color: var(--accent); text-decoration: underline; }
+  .src { display: inline-block; font-size: 10px; font-weight: 700; border-radius: 3px;
+    padding: 1px 6px; color: #fff; margin-bottom: 3px; }
+  .src.m { background: var(--mercari); }
+  .src.a { background: var(--amazon); }
+  .plus { color: var(--plus); font-weight: 700; }
+  .minus { color: var(--minus); }
+  .na { color: var(--sub); }
+  .foot { color: var(--sub); font-size: 11.5px; margin-top: 10px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<h1><span class="delta">Δ</span> デルタサーチ</h1>
+<div class="tagline">メルカリ仕入れ → Amazon販売の価格差を型番マッチングで検出</div>
+
+<div class="searchbar">
+  <input type="text" id="kw" placeholder='キーワード（例: WF-1000XM5 / Panasonic バッテリー）' onkeydown="if(event.key==='Enter')run()">
+  <button class="primary" id="runBtn" onclick="run()">分析開始</button>
+</div>
+
+<div class="options">
+  <label>取得件数 <input type="number" id="limit" value="60" min="10" max="120"></label>
+  <label>Amazon逆引き上限 <input type="number" id="maxMpn" value="10" min="1" max="20"></label>
+  <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
+  <label>送料概算 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
+  <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
+</div>
+
+<div id="status">キーワードを入力して分析開始</div>
+<div id="result"></div>
+<div class="foot">
+  比率 = メルカリ最安 ÷ Amazon新品価格（低いほど旨い）。想定利益 = Amazon価格 ×(1−手数料) − 送料 − メルカリ最安。<br>
+  最終判断は必ず両リンク先で現物確認（状態・付属品・同一商品か）。
+</div>
+
+<script>
+const WORKER = "https://arbitrage-ai.elle-71-boc.workers.dev";
+const DEFAULT_NG = "片耳,右耳,左耳,右のみ,左のみ,ケースのみ,充電ケース,イヤーピース,付属品,ジャンク,部品取り,訳あり,訳アリ,箱のみ,ケーブル,カバー,保護,フィルム,互換";
+
+const $ = id => document.getElementById(id);
+$("ngWords").value = localStorage.getItem("ds_ng") || DEFAULT_NG;
+$("ngWords").addEventListener("change", () => localStorage.setItem("ds_ng", $("ngWords").value));
+
+let rows = [];
+let sortKey = "profit", sortDir = -1;
+
+// ---- 型番抽出 ----
+// 全角→半角、大文字化、ハイフン類統一
+function normalize(s) {
+  return s.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+          .replace(/[‐－―ー−]/g, "-")
+          .toUpperCase();
+}
+// 英字1-6 + (ハイフン任意) + 数字2-6 + 英数0-4 のパターンを型番とみなす
+function extractMpns(title) {
+  const t = normalize(title);
+  const re = /[A-Z]{1,6}-?[0-9]{2,6}[A-Z0-9]{0,4}/g;
+  const out = new Set();
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const raw = m[0];
+    const key = raw.replace(/-/g, "");     // グルーピングキーはハイフン無視
+    if (key.length < 5) continue;          // 短すぎるものは除外 (例: V6, S型)
+    out.add(key);
+  }
+  return [...out];
+}
+
+function ngHit(title, ngs) {
+  return ngs.some(w => w && title.includes(w));
+}
+
+async function run() {
+  const kw = $("kw").value.trim();
+  if (!kw) return;
+  $("runBtn").disabled = true;
+  rows = [];
+  render();
+
+  try {
+    // 1) メルカリ検索
+    setStatus("メルカリ検索中…");
+    const mRes = await fetch(`${WORKER}/mercari?q=${encodeURIComponent(kw)}&status=on_sale&limit=${$("limit").value}`);
+    const mData = await mRes.json();
+    if (mData.error) throw new Error("メルカリ: " + mData.error);
+
+    const ngs = $("ngWords").value.split(",").map(s => s.trim()).filter(Boolean);
+    const items = mData.items.filter(it => !ngHit(it.title, ngs));
+    setStatus(`メルカリ ${mData.count}件取得（NG除外後 ${items.length}件）→ 型番抽出中…`);
+
+    // 2) 型番グルーピング
+    const groups = {};
+    for (const it of items) {
+      for (const mpn of extractMpns(it.title)) {
+        (groups[mpn] = groups[mpn] || []).push(it);
+      }
+    }
+    const mpns = Object.entries(groups)
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, parseInt($("maxMpn").value));
+    if (mpns.length === 0) throw new Error("型番を抽出できませんでした。キーワードを具体的にしてください。");
+
+    // 3) 型番ごとにAmazon逆引き（順次・SP-APIレート配慮）
+    let done = 0;
+    for (const [mpn, gItems] of mpns) {
+      done++;
+      setStatus(`Amazon逆引き中… ${done}/${mpns.length}（${mpn}）`);
+      try {
+        const aRes = await fetch(`${WORKER}/amazon?q=${encodeURIComponent(mpn)}&limit=5`);
+        const aData = await aRes.json();
+        if (aData.error) throw new Error(aData.error);
+
+        // タイトル or MPN欄に型番を含むものを優先、無ければ先頭
+        const norm = s => normalize(s || "").replace(/-/g, "");
+        let best = aData.items.find(a => norm(a.title).includes(mpn) || norm(a.mpn).includes(mpn))
+                 || aData.items[0];
+
+        const cheapest = gItems.reduce((a, b) => a.price <= b.price ? a : b);
+        addRow(mpn, gItems.length, cheapest, best || null, null);
+      } catch (e) {
+        const cheapest = gItems.reduce((a, b) => a.price <= b.price ? a : b);
+        addRow(mpn, gItems.length, cheapest, null, String(e.message).slice(0, 120));
+      }
+      render();
+      await new Promise(r => setTimeout(r, 600));
+    }
+    setStatus(`完了：${rows.length}型番を分析（メルカリ${items.length}件から）`);
+  } catch (e) {
+    setStatus(`<span class="err">エラー: ${e.message}</span>`);
+  } finally {
+    $("runBtn").disabled = false;
+  }
+}
+
+function addRow(mpn, count, mItem, aItem, err) {
+  const fee = parseFloat($("feePct").value) / 100;
+  const ship = parseFloat($("shipCost").value);
+  const aPrice = aItem?.priceNew ?? null;
+  const diff = aPrice != null ? aPrice - mItem.price : null;
+  const ratio = aPrice ? mItem.price / aPrice : null;
+  const profit = aPrice != null ? Math.round(aPrice * (1 - fee) - ship - mItem.price) : null;
+  rows.push({ mpn, count, mItem, aItem, aPrice, diff, ratio, profit, err });
+}
+
+function setStatus(html) { $("status").innerHTML = html; }
+
+function fmt(n) { return n == null ? '<span class="na">—</span>' : "¥" + n.toLocaleString(); }
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+  render();
+}
+
+function render() {
+  if (rows.length === 0) { $("result").innerHTML = ""; return; }
+  const sorted = [...rows].sort((a, b) => {
+    const va = a[sortKey], vb = b[sortKey];
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return (va - vb) * sortDir;
+  });
+  const arrow = k => sortKey === k ? `<span class="arrow">${sortDir === -1 ? "▼" : "▲"}</span>` : "";
+  const th = (k, label) => `<th class="${sortKey===k?'sorted':''}" onclick="sortBy('${k}')">${label} ${arrow(k)}</th>`;
+
+  let html = `<table><thead><tr>
+    <th>型番</th><th></th><th>メルカリ最安</th>
+    ${th("aPrice","Amazon新品")}<th></th><th>Amazon商品</th>
+    ${th("diff","差額")}${th("ratio","比率")}${th("profit","想定利益")}
+  </tr></thead><tbody>`;
+
+  for (const r of sorted) {
+    const m = r.mItem, a = r.aItem;
+    html += `<tr>
+      <td><span class="mpn">${r.mpn}</span><br><span class="cnt">${r.count}件</span></td>
+      <td>${m.image ? `<a href="${m.url}" target="_blank"><img class="thumb" src="${m.image}"></a>` : ""}</td>
+      <td class="ttl"><span class="src m">メルカリ</span><br>
+        <a href="${m.url}" target="_blank">${m.title}</a><br>
+        <b style="font-family:var(--mono)">¥${m.price.toLocaleString()}</b></td>
+      <td class="num">${fmt(r.aPrice)}</td>
+      <td>${a?.image ? `<a href="${a.url}" target="_blank"><img class="thumb" src="${a.image}"></a>` : ""}</td>
+      <td class="ttl">${a
+        ? `<span class="src a">Amazon</span><br><a href="${a.url}" target="_blank">${a.title.slice(0,80)}…</a>`
+        : `<span class="na">${r.err || "該当なし"}</span>`}</td>
+      <td class="num ${r.diff > 0 ? "plus" : "minus"}">${r.diff != null ? (r.diff>0?"+":"") + "¥" + r.diff.toLocaleString() : '<span class="na">—</span>'}</td>
+      <td class="num">${r.ratio != null ? Math.round(r.ratio * 100) + "%" : '<span class="na">—</span>'}</td>
+      <td class="num ${r.profit > 0 ? "plus" : "minus"}">${r.profit != null ? (r.profit>0?"+":"") + "¥" + r.profit.toLocaleString() : '<span class="na">—</span>'}</td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  $("result").innerHTML = html;
+}
+</script>
+</body>
+</html>
