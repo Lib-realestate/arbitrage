@@ -101,7 +101,8 @@
 <div id="status">キーワードを入力して分析開始</div>
 <div id="result"></div>
 <div class="foot">
-  比率 = メルカリ最安 ÷ Amazon新品価格（低いほど旨い）。想定利益 = Amazon価格 ×(1−手数料) − 送料 − メルカリ最安。<br>
+  メルカリ最安の状態（新品未使用/未使用に近い→Amazon新品、それ以外→Amazon中古）に合わせて比較。カート価格が無い場合は最安出品価格。<br>
+  比率 = メルカリ最安 ÷ Amazon価格（低いほど旨い）。想定利益 = Amazon価格 ×(1−手数料) − 送料 − メルカリ最安。<br>
   最終判断は必ず両リンク先で現物確認（状態・付属品・同一商品か）。
 </div>
 
@@ -188,10 +189,20 @@ async function run() {
                  || aData.items[0];
 
         const cheapest = gItems.reduce((a, b) => a.price <= b.price ? a : b);
-        addRow(mpn, gItems.length, cheapest, best || null, null);
+        const isNew = cheapest.condition == null || cheapest.condition <= 2; // 1-2=新品扱い
+        let aPrice = best ? (isNew ? best.priceNew : best.priceUsed) : null;
+        // カート価格が無ければ最安出品価格を取得
+        if (best && aPrice == null) {
+          try {
+            const oRes = await fetch(`${WORKER}/offers?asin=${best.asin}&condition=${isNew ? "New" : "Used"}`);
+            const oData = await oRes.json();
+            aPrice = oData.lowest ?? null;
+          } catch (_) {}
+        }
+        addRow(mpn, gItems.length, cheapest, best || null, aPrice, isNew, null);
       } catch (e) {
         const cheapest = gItems.reduce((a, b) => a.price <= b.price ? a : b);
-        addRow(mpn, gItems.length, cheapest, null, String(e.message).slice(0, 120));
+        addRow(mpn, gItems.length, cheapest, null, null, true, String(e.message).slice(0, 120));
       }
       render();
       await new Promise(r => setTimeout(r, 600));
@@ -204,15 +215,17 @@ async function run() {
   }
 }
 
-function addRow(mpn, count, mItem, aItem, err) {
+function addRow(mpn, count, mItem, aItem, aPrice, isNew, err) {
   const fee = parseFloat($("feePct").value) / 100;
   const ship = parseFloat($("shipCost").value);
-  const aPrice = aItem?.priceNew ?? null;
   const diff = aPrice != null ? aPrice - mItem.price : null;
   const ratio = aPrice ? mItem.price / aPrice : null;
   const profit = aPrice != null ? Math.round(aPrice * (1 - fee) - ship - mItem.price) : null;
-  rows.push({ mpn, count, mItem, aItem, aPrice, diff, ratio, profit, err });
+  rows.push({ mpn, count, mItem, aItem, aPrice, isNew, diff, ratio, profit, err });
 }
+
+const COND_NAMES = { 1:"新品未使用", 2:"未使用に近い", 3:"目立った傷なし", 4:"やや傷汚れ", 5:"傷汚れあり", 6:"状態悪い" };
+function condName(c) { return COND_NAMES[c] || ""; }
 
 function setStatus(html) { $("status").innerHTML = html; }
 
@@ -236,7 +249,7 @@ function render() {
 
   let html = `<table><thead><tr>
     <th>型番</th><th></th><th>メルカリ最安</th>
-    ${th("aPrice","Amazon新品")}<th></th><th>Amazon商品</th>
+    ${th("aPrice","Amazon価格")}<th></th><th>Amazon商品</th>
     ${th("diff","差額")}${th("ratio","比率")}${th("profit","想定利益")}
   </tr></thead><tbody>`;
 
@@ -247,8 +260,9 @@ function render() {
       <td>${m.image ? `<a href="${m.url}" target="_blank"><img class="thumb" src="${m.image}"></a>` : ""}</td>
       <td class="ttl"><span class="src m">メルカリ</span><br>
         <a href="${m.url}" target="_blank">${m.title}</a><br>
-        <b style="font-family:var(--mono)">¥${m.price.toLocaleString()}</b></td>
-      <td class="num">${fmt(r.aPrice)}</td>
+        <b style="font-family:var(--mono)">¥${m.price.toLocaleString()}</b>
+        <span class="cnt">${condName(m.condition)}</span></td>
+      <td class="num">${fmt(r.aPrice)}${r.aPrice != null ? `<br><span class="cnt">${r.isNew ? "新品" : "中古"}</span>` : ""}</td>
       <td>${a?.image ? `<a href="${a.url}" target="_blank"><img class="thumb" src="${a.image}"></a>` : ""}</td>
       <td class="ttl">${a
         ? `<span class="src a">Amazon</span><br><a href="${a.url}" target="_blank">${a.title.slice(0,80)}…</a>`
