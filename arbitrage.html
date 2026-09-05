@@ -95,6 +95,15 @@
 
 <div class="options">
   <label>取得件数 <input type="number" id="limit" value="60" min="10" max="120"></label>
+  <label>並び順
+    <select id="sortBy" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px">
+      <option value="created">新着順</option>
+      <option value="price_asc">価格が安い順</option>
+      <option value="score">関連度順</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="skipSeen" checked> 確認済みを除外</label>
+  <button onclick="clearSeen()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">確認済みをリセット</button>
   <label>Amazon逆引き上限 <input type="number" id="maxMpn" value="10" min="1" max="20"></label>
   <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
   <label>送料概算 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
@@ -134,6 +143,22 @@ $("ngWords").addEventListener("change", () => localStorage.setItem("ds_ng", $("n
 
 let rows = [];
 let sortKey = "profit", sortDir = -1;
+
+// ===== 確認済み商品の記録 =====
+let seen = new Set(JSON.parse(localStorage.getItem("ds_seen") || "[]"));
+function saveSeen() { localStorage.setItem("ds_seen", JSON.stringify([...seen].slice(-8000))); }
+function clearSeen() {
+  if (!confirm(`確認済み ${seen.size}件をリセットします。よろしいですか？`)) return;
+  seen = new Set(); saveSeen();
+  setStatus("確認済みをリセットしました");
+}
+// 出品からの経過日数
+function daysSince(s) {
+  if (!s) return null;
+  const t = Date.parse(s) || (/^\d{9,10}$/.test(s) ? parseInt(s) * 1000 : NaN);
+  if (isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
 
 // ===== 出品ファイル出力 =====
 const selected = new Set();
@@ -262,13 +287,19 @@ async function run() {
   try {
     // 1) メルカリ検索
     setStatus("メルカリ検索中…");
-    const mRes = await fetch(`${WORKER}/mercari?q=${encodeURIComponent(kw)}&status=on_sale&limit=${$("limit").value}`);
+    const mRes = await fetch(`${WORKER}/mercari?q=${encodeURIComponent(kw)}&status=on_sale&limit=${$("limit").value}&sort=${$("sortBy").value}`);
     const mData = await mRes.json();
     if (mData.error) throw new Error("メルカリ: " + mData.error);
 
     const ngs = $("ngWords").value.split(",").map(s => s.trim()).filter(Boolean);
-    const items = mData.items.filter(it => !ngHit(it.title, ngs));
-    setStatus(`メルカリ ${mData.count}件取得（NG除外後 ${items.length}件）→ 型番抽出中…`);
+    let items = mData.items.filter(it => !ngHit(it.title, ngs));
+    const beforeSeen = items.length;
+    if ($("skipSeen").checked) items = items.filter(it => !seen.has(it.id));
+    const skipSeenCnt = beforeSeen - items.length;
+    items.forEach(it => seen.add(it.id));
+    saveSeen();
+    if (items.length === 0) throw new Error("新しい商品がありませんでした（確認済みを除外した結果0件）");
+    setStatus(`メルカリ ${mData.count}件取得（NG除外 ${mData.count - beforeSeen}件／確認済み除外 ${skipSeenCnt}件 → 残り ${items.length}件）→ 型番抽出中…`, "busy");
 
     // 2) 型番グルーピング
     const groups = {};
@@ -328,13 +359,14 @@ async function run() {
   }
 }
 
-function addRow(mpn, count, mItem, aItem, aPrice, isNew, err) {
+function addRow(mpn, count, mItem, aItem, aPrice, isNew, err, gItems) {
   const fee = parseFloat($("feePct").value) / 100;
   const ship = parseFloat($("shipCost").value);
   const diff = aPrice != null ? aPrice - mItem.price : null;
   const ratio = aPrice ? mItem.price / aPrice : null;
   const profit = aPrice != null ? Math.round(aPrice * (1 - fee) - ship - mItem.price) : null;
-  rows.push({ mpn, count, mItem, aItem, aPrice, isNew, diff, ratio, profit, err });
+  const days = daysSince(mItem.created);
+  rows.push({ mpn, count, mItem, aItem, aPrice, isNew, diff, ratio, profit, err, days });
 }
 
 const COND_NAMES = { 1:"新品未使用", 2:"未使用に近い", 3:"目立った傷なし", 4:"やや傷汚れ", 5:"傷汚れあり", 6:"状態悪い" };
@@ -386,7 +418,9 @@ function render() {
     const m = r.mItem, a = r.aItem;
     html += `<tr>
       <td><input type="checkbox" ${selected.has(r.mpn) ? "checked" : ""} onchange="toggleSel('${r.mpn}', this.checked)"></td>
-      <td><span class="mpn">${r.mpn}</span><br><span class="cnt">${r.count}件</span></td>
+      <td><span class="mpn">${r.mpn}</span><br>
+        <span class="cnt" style="${r.count >= 2 ? "color:var(--plus)" : "color:var(--minus)"}">出品${r.count}件</span>
+        ${r.days != null ? `<br><span class="cnt">${r.days}日経過</span>` : ""}</td>
       <td>${m.image ? `<a href="${m.url}" target="_blank"><img class="thumb" src="${m.image}"></a>` : ""}</td>
       <td class="ttl"><span class="src m">メルカリ</span><br>
         <a href="${m.url}" target="_blank">${m.title}</a><br>
