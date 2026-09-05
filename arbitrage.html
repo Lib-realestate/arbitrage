@@ -100,16 +100,17 @@
 
 <div class="options">
   <label>出品価格 = Amazon価格 × <input type="number" id="priceRate" value="1.00" step="0.01" min="0.5" max="2"></label>
-  <label>出荷作業日数 <input type="number" id="leadTime" value="8" min="1" max="30">日</label>
+  <label>リードタイム <input type="number" id="leadTime" value="7" min="1" max="30">日</label>
+  <label>配送パターン <input type="text" id="shipGroup" value="DEFAULT" style="width:110px"></label>
   <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
   <button class="primary" onclick="exportCsv()" style="padding:6px 16px;font-size:13px">出品ファイルを出力</button>
-  <button onclick="toggleTpl()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer">テンプレート設定</button>
+  <button onclick="toggleTpl()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer">説明文の設定</button>
 </div>
 <div id="tplBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
   <div style="color:var(--sub);font-size:12px;margin-bottom:6px">
-    在庫ファイルテンプレートの「sku」がある行と、それより上の行をそのまま貼り付けてください（一度貼れば保存されます）
+    コンディション説明の定型文（使える差し込み： {型番} {状態} {タイトル}）
   </div>
-  <textarea id="tplHead" style="width:100%;height:90px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px;font-family:var(--mono);font-size:11px"></textarea>
+  <textarea id="noteTpl" style="width:100%;height:70px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:12px"></textarea>
 </div>
 
 <div id="status">キーワードを入力して分析開始</div>
@@ -133,35 +134,47 @@ let sortKey = "profit", sortDir = -1;
 
 // ===== 出品ファイル出力 =====
 const selected = new Set();
-$("tplHead").value = localStorage.getItem("ds_tpl") || "";
-$("tplHead").addEventListener("change", () => localStorage.setItem("ds_tpl", $("tplHead").value));
+const noteEdits = {};   // 型番ごとの個別編集した説明文
+
+const DEFAULT_NOTE = `- 型番 {型番}
+- 商品の状態 {状態}
+画像の物が全てです。付属品などは事前にご確認ください。`;
+
+$("noteTpl").value = localStorage.getItem("ds_note") || DEFAULT_NOTE;
+$("noteTpl").addEventListener("change", () => { localStorage.setItem("ds_note", $("noteTpl").value); render(); });
 
 function toggleTpl() {
   const b = $("tplBox");
   b.style.display = b.style.display === "none" ? "block" : "none";
 }
-function toggleSel(mpn, on) { on ? selected.add(mpn) : selected.delete(mpn); }
+function toggleSel(mpn, on) { on ? selected.add(mpn) : selected.delete(mpn); render(); }
+function editNote(mpn, val) { noteEdits[mpn] = val; }
 
-// メルカリの状態 → Amazonの状態
+// メルカリの状態 → Amazonのコンディション
 const COND_MAP = {
-  1: { code: "11", note: "" },
-  2: { code: "1",  note: "未使用に近い、非常に良好な状態です。" },
-  3: { code: "2",  note: "目立った傷や汚れのない良好な状態です。" },
-  4: { code: "3",  note: "やや使用感がありますが、動作に問題はありません。" },
-  5: { code: "4",  note: "傷や汚れがありますが、動作に問題はありません。" },
+  1: "New", 2: "UsedLikeNew", 3: "UsedVeryGood", 4: "UsedGood", 5: "UsedAcceptable",
 };
 function amzCondition(item) {
   const c = item.condition;
-  if (c === 6) return null;                      // 状態が悪いものは出品しない
-  if (c === 1) {
-    if (/開封/.test(item.title) || !$("allowNew").checked) return COND_MAP[2];
-  }
-  return COND_MAP[c] || COND_MAP[5];
+  if (c === 6) return null;                       // 状態が悪いものは出品しない
+  if (c === 1 && (/開封/.test(item.title) || !$("allowNew").checked)) return "UsedLikeNew";
+  return COND_MAP[c] || "UsedAcceptable";
 }
 function mercariId(url) {
   const m = String(url).match(/\/item\/(m\d+)/);
   return m ? m[1] : "";
 }
+function buildNote(r) {
+  if (noteEdits[r.mpn] != null) return noteEdits[r.mpn];
+  return $("noteTpl").value
+    .replace(/\{型番\}/g, r.mpn)
+    .replace(/\{状態\}/g, condName(r.mItem.condition))
+    .replace(/\{タイトル\}/g, r.mItem.title);
+}
+
+const TPL_LINE1 = "TemplateType=Offer\tVersion=2020.000";
+const TPL_JP = "商品管理番号\t販売価格\tポイントパーセント\t在庫数\t商品コード(JANコード等)\t商品コードのタイプ\t商品のコンディション\t商品のコンディション説明\t対象ASIN\t商品名\t更新タイプ\tセール価格\tセールポイントパーセント\tセール開始日\tセール終了日\tリードタイム(出荷までにかかる日数)\t商品の公開日\tギフト\tギフトメッセージ\tフルフィルメントセンターID\t使用しない支払方法\t出品者SKUのメイン画像URL\t出品者SKUのサブ画像URL1\t出品者SKUのサブ画像URL2\t出品者SKUのサブ画像URL3\t出品者SKUのサブ画像URL4\t出品者SKUのサブ画像URL5\t配送パターン\t商品タックスコード\t電池の有無\t電池付属\tバッテリーセルタイプ\t電池のタイプ\tフル電池数\t電池の重量(グラム)\tリチウムイオン電池単数\tリチウムメタル電池単数\tリチウム電池パッケージ\tリチウム電池エネルギー含有量\tリチウム電池重量\t危険物1\t危険物2\t危険物3\t危険物4\t危険物5\t国連(UN)番号\t安全データシート(SDS) URL\t商品の重量\t商品の容量\t引火点(°C)\t危険物ラベル1\t危険物ラベル2\t危険物ラベル3\t商品の重量の単位\t商品の容量の単位\tリチウム電池のエネルギー量測定単位\tリチウム電池の重量の測定単位\t電池の重量の測定単位";
+const TPL_EN = ["sku","price","standard-price-points-percent","quantity","product-id","product-id-type","condition-type","condition-note","ASIN-hint","title","operation-type","sale-price","sale-price-points-percent","sale-start-date","sale-end-date","leadtime-to-ship","launch-date","is-giftwrap-available","is-gift-message-available","fulfillment-center-id","optional-payment-type-exclusion","main-offer-image","offer-image1","offer-image2","offer-image3","offer-image4","offer-image5","merchant_shipping_group_name","product-tax-code","batteries_required","are_batteries_included","battery_cell_composition","battery_type","number_of_batteries","battery_weight","number_of_lithium_ion_cells","number_of_lithium_metal_cells","lithium_battery_packaging","lithium_battery_energy_content","lithium_battery_weight","supplier_declared_dg_hz_regulation1","supplier_declared_dg_hz_regulation2","supplier_declared_dg_hz_regulation3","supplier_declared_dg_hz_regulation4","supplier_declared_dg_hz_regulation5","hazmat_united_nations_regulatory_id","safety_data_sheet_url","item_weight","item_volume","flash_point","ghs_classification_class1","ghs_classification_class2","ghs_classification_class3","item_weight_unit_of_measure","item_volume_unit_of_measure","lithium_battery_energy_content_unit_of_measure","lithium_battery_weight_unit_of_measure","battery_weight_unit_of_measure"];
 
 function exportCsv() {
   let targets = rows.filter(r => selected.has(r.mpn) && r.aItem && r.aPrice != null);
@@ -169,47 +182,41 @@ function exportCsv() {
     alert("出品する商品にチェックを入れてください（Amazon価格が取れていない行は出力できません）");
     return;
   }
-
-  const raw = $("tplHead").value.trim();
-  let preLines = [], header;
-  if (raw) {
-    const lines = raw.split(/\r?\n/);
-    const hi = lines.findIndex(l => l.toLowerCase().split(/\t/).includes("sku"));
-    if (hi === -1) { alert("貼り付けた内容に sku の行が見つかりません"); return; }
-    preLines = lines.slice(0, hi);
-    header = lines[hi].split("\t");
-  } else {
-    header = ["sku","product-id","product-id-type","price","item-condition","quantity","add-delete","item-note","leadtime-to-ship"];
-  }
-
   const skipped = targets.filter(r => amzCondition(r.mItem) === null).length;
   targets = targets.filter(r => amzCondition(r.mItem) !== null);
   if (targets.length === 0) { alert("選択された商品はすべて状態不良のため出品できません"); return; }
 
   const rate = parseFloat($("priceRate").value) || 1;
   const lead = $("leadTime").value;
+  const ship = $("shipGroup").value.trim() || "DEFAULT";
 
-  const out = targets.map(r => {
-    const cond = amzCondition(r.mItem);
+  const lines = targets.map(r => {
+    const mid = mercariId(r.mItem.url);
     const v = {
-      "sku": mercariId(r.mItem.url) || r.mpn,
-      "product-id": r.aItem.asin,
-      "product-id-type": "1",
+      "sku": `m_${mid}-${r.mItem.price}`,
       "price": String(Math.round(r.aPrice * rate)),
-      "item-condition": cond.code,
       "quantity": "1",
-      "add-delete": "a",
-      "item-note": cond.note,
+      "product-id": r.aItem.asin,
+      "product-id-type": "ASIN",
+      "condition-type": amzCondition(r.mItem),
+      "condition-note": buildNote(r).replace(/[\t\r\n]+/g, " "),
       "leadtime-to-ship": lead,
+      "merchant_shipping_group_name": ship,
+      "batteries_required": "FALSE",
+      "supplier_declared_dg_hz_regulation1": "not_applicable",
     };
-    return header.map(h => v[h.trim().toLowerCase()] ?? "").join("\t");
+    for (let i = 1; i <= 6; i++) {
+      v[i === 1 ? "main-offer-image" : `offer-image${i - 1}`] =
+        mid ? `https://static.mercdn.net/item/detail/orig/photos/${mid}_${i}.jpg` : "";
+    }
+    return TPL_EN.map(k => v[k] ?? "").join("\t");
   });
 
-  const text = [...preLines, header.join("\t"), ...out].join("\r\n");
+  const text = [TPL_LINE1, TPL_JP, TPL_EN.join("\t"), ...lines].join("\r\n");
   const blob = new Blob(["\uFEFF" + text], { type: "text/tab-separated-values" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `amazon_listing_${new Date().toISOString().slice(0,10)}.txt`;
+  a.download = `mercari_amazon_${new Date().toISOString().slice(0,10)}.txt`;
   a.click();
   setStatus(`出品ファイルを出力しました（${targets.length}件${skipped ? ` / 状態不良で除外 ${skipped}件` : ""}）`);
 }
@@ -368,7 +375,14 @@ function render() {
       <td class="num ${r.diff > 0 ? "plus" : "minus"}">${r.diff != null ? (r.diff>0?"+":"") + "¥" + r.diff.toLocaleString() : '<span class="na">—</span>'}</td>
       <td class="num">${r.ratio != null ? Math.round(r.ratio * 100) + "%" : '<span class="na">—</span>'}</td>
       <td class="num ${r.profit > 0 ? "plus" : "minus"}">${r.profit != null ? (r.profit>0?"+":"") + "¥" + r.profit.toLocaleString() : '<span class="na">—</span>'}</td>
-    </tr>`;
+        </tr>`;
+    if (selected.has(r.mpn) && amzCondition(r.mItem)) {
+      html += `<tr><td></td><td colspan="8" style="padding-top:0">
+        <div style="color:var(--sub);font-size:11px;margin-bottom:3px">コンディション説明（この商品だけ編集できます）</div>
+        <textarea onchange="editNote('${r.mpn}', this.value)"
+          style="width:100%;height:54px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:6px;font-size:11.5px">${buildNote(r)}</textarea>
+      </td></tr>`;
+    }
   }
   html += "</tbody></table>";
   $("result").innerHTML = html;
