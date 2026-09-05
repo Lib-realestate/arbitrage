@@ -124,7 +124,8 @@
     <thead><tr><th style="background:none">仕入れ値の上限</th><th style="background:none">最低利益額</th><th style="background:none">最低利益率</th></tr></thead>
     <tbody id="tierBody"></tbody>
   </table>
-  <div style="color:var(--sub);font-size:11px;margin-top:6px">※ 上限を空欄にすると、それ以上すべての価格帯に適用されます</div>
+  <button onclick="addTier()" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px">＋ 行を追加</button>
+  <div style="color:var(--sub);font-size:11px;margin-top:6px">※ 上限を空欄にすると、それ以上すべての価格帯に適用されます。上限が小さい順に自動で並び替わります</div>
 </div>
 <div id="tplBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
   <div style="color:var(--sub);font-size:12px;margin-bottom:6px">
@@ -171,13 +172,30 @@ function renderTiers() {
     <td><input type="number" value="${t.max ?? ""}" placeholder="上限なし" style="width:90px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'max',this.value)">円まで</td>
     <td><input type="number" value="${t.yen}" style="width:70px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'yen',this.value)">円</td>
     <td><input type="number" value="${t.pct}" style="width:55px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'pct',this.value)">%</td>
+    <td><button onclick="delTier(${i})" style="background:none;border:1px solid var(--line);color:var(--minus);border-radius:4px;padding:2px 8px;cursor:pointer" title="この行を削除">×</button></td>
   </tr>`).join("");
+}
+
+function addTier() {
+  tiers.push({ max: null, yen: 1000, pct: 20 });
+  sortTiers();
+}
+function delTier(i) {
+  if (tiers.length <= 1) { alert("最低1行は必要です"); return; }
+  tiers.splice(i, 1);
+  sortTiers();
+}
+function sortTiers() {
+  // 上限が小さい順に並べ、上限なし（null）を最後に置く
+  tiers.sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
+  localStorage.setItem("ds_tiers", JSON.stringify(tiers));
+  renderTiers();
+  rows.forEach(recalc);
+  render();
 }
 function setTier(i, key, val) {
   tiers[i][key] = (key === "max" && val === "") ? null : parseFloat(val) || 0;
-  localStorage.setItem("ds_tiers", JSON.stringify(tiers));
-  rows.forEach(recalc);
-  render();
+  sortTiers();
 }
 function tierOf(cost) {
   return tiers.find(t => t.max == null || cost <= t.max) || tiers[tiers.length - 1];
