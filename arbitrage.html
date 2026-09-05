@@ -199,6 +199,17 @@ function setTier(i, key, val) {
   tiers[i][key] = (key === "max" && val === "") ? null : parseFloat(val) || 0;
   sortTiers();
 }
+
+// 手入力された出品価格を反映する
+function setListPrice(mpn, val) {
+  const r = rows.find(x => x.mpn === mpn);
+  if (!r) return;
+  const v = parseInt(String(val).replace(/[^\d]/g, ""), 10);
+  r.priceEdit = isNaN(v) || v <= 0 ? null : v;
+  recalc(r);
+  render();
+}
+
 function tierOf(cost) {
   return tiers.find(t => t.max == null || cost <= t.max) || tiers[tiers.length - 1];
 }
@@ -218,8 +229,9 @@ function recalc(r) {
 
   if (r.aPrice == null) { r.listPrice = null; r.profit = null; r.meetsGoal = false; return; }
 
-  r.listPrice = need <= r.aPrice ? r.aPrice - 1 : need;
-  r.undercut  = need <= r.aPrice;
+  r.autoPrice = need <= r.aPrice ? r.aPrice - 1 : need;
+  r.listPrice = r.priceEdit ?? r.autoPrice;
+  r.undercut  = r.listPrice < r.aPrice;
   r.profit    = Math.round(r.listPrice * (1 - fee) - ship - cost);
   r.goal      = goal;
   r.meetsGoal = r.profit >= goal;
@@ -540,7 +552,9 @@ function render() {
         : `<span class="na">${r.err || "該当なし"}</span>`}</td>
       <td class="num ${r.diff > 0 ? "plus" : "minus"}">${r.diff != null ? (r.diff>0?"+":"") + "¥" + r.diff.toLocaleString() : '<span class="na">—</span>'}</td>
       <td class="num">${r.ratio != null ? Math.round(r.ratio * 100) + "%" : '<span class="na">—</span>'}</td>
-      <td class="num">${r.listPrice != null ? "¥" + r.listPrice.toLocaleString() + `<br><span class="cnt">${r.undercut ? "最安" : "上回る"}</span>` : '<span class="na">—</span>'}</td>
+      <td class="num">${r.listPrice != null ? `<input type="number" value="${r.listPrice}" onchange="setListPrice('${r.mpn}', this.value)"
+          style="width:82px;text-align:right;background:var(--panel2);color:${r.priceEdit ? "var(--accent)" : "var(--text)"};border:1px solid ${r.priceEdit ? "var(--accent)" : "var(--line)"};border-radius:4px;padding:3px 5px;font-family:var(--mono)">
+        <br><span class="cnt">${r.undercut ? "最安" : "上回る"}${r.priceEdit ? " / 手入力" : ""}</span>` : '<span class="na">—</span>'}</td>
       <td class="num ${r.meetsGoal ? "plus" : "minus"}">${r.profit != null ? (r.profit>0?"+":"") + "¥" + r.profit.toLocaleString() + `<br><span class="cnt">目標¥${(r.goal||0).toLocaleString()}</span>` : '<span class="na">—</span>'}</td>
         </tr>`;
     if (selected.has(r.mpn) && amzCondition(r.mItem)) {
