@@ -81,6 +81,27 @@
   .minus { color: var(--minus); }
   .na { color: var(--sub); }
   .foot { color: var(--sub); font-size: 11.5px; margin-top: 10px; line-height: 1.7; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 12px; }
+  .stepnum { font-size: 12px; font-weight: 700; color: var(--sub); letter-spacing: .1em;
+    margin-bottom: 8px; display: inline-block; }
+  .step .searchbar { margin-bottom: 8px; }
+  .sub2 { display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    font-size: 12.5px; color: var(--sub); }
+  .sub2 label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .sub2 input[type=number] { width: 60px; }
+  .panel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; margin-bottom: 12px; }
+  .ptitle { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  button.ghost { background: none; color: var(--sub); border: 1px solid var(--line);
+    padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  button.ghost:hover { color: var(--text); border-color: var(--sub); }
+  input[type=number], input[type=text], select, textarea {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 6px; font-family: inherit; font-size: 12.5px; }
+  .panel input, .panel select, .panel textarea { background: var(--bg); }
+  #resultHead { display: flex; justify-content: space-between; align-items: center;
+    margin: 4px 0 8px; }
 </style>
 </head>
 <body>
@@ -88,63 +109,79 @@
 <h1><span class="delta">Δ</span> デルタサーチ</h1>
 <div class="tagline">メルカリ仕入れ → Amazon販売の価格差を型番マッチングで検出</div>
 
-<div class="searchbar">
-  <input type="text" id="kw" placeholder='キーワード（例: WF-1000XM5 / Panasonic バッテリー）' onkeydown="if(event.key==='Enter')run()">
-  <button class="primary" id="runBtn" onclick="run()">分析開始</button>
+<!-- ① 探す -->
+<div class="step">
+  <div class="stepnum">1. 探す</div>
+  <div class="searchbar">
+    <input type="text" id="kw" placeholder='キーワード（例: WF-1000XM5 / Panasonic バッテリー）' onkeydown="if(event.key==='Enter')run()">
+    <button class="primary" id="runBtn" onclick="run()">分析開始</button>
+    <button class="ghost" onclick="togglePanel('cfgBox')">⚙ 設定</button>
+  </div>
+  <div class="sub2">
+    <label>並び順
+      <select id="sortBy"><option value="created">新着順</option><option value="price_asc">価格が安い順</option><option value="score">関連度順</option></select>
+    </label>
+    <label>取得件数 <input type="number" id="limit" value="60" min="10" max="120"></label>
+    <label>Amazon照合の上限 <input type="number" id="maxMpn" value="30" min="1" max="100"></label>
+    <label><input type="checkbox" id="skipSeen" checked> 確認済みを除外</label>
+    <span class="cnt">（<span id="seenCnt">0</span>件 / <span id="seenDays">30</span>日で自動解除）</span>
+  </div>
 </div>
 
-<div class="options">
-  <label>取得件数 <input type="number" id="limit" value="60" min="10" max="120"></label>
-  <label>並び順
-    <select id="sortBy" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px">
-      <option value="created">新着順</option>
-      <option value="price_asc">価格が安い順</option>
-      <option value="score">関連度順</option>
-    </select>
-  </label>
-  <label><input type="checkbox" id="skipSeen" checked> 確認済みを除外</label>
-  <button onclick="clearSeen()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">確認済みをリセット</button>
-  <button onclick="toggleCart()" class="primary" style="padding:4px 14px;font-size:12px">🛒 カゴ <span id="cartCnt">0</span>件</button>
-  <span style="font-size:11px">（<span id="seenCnt">0</span>件 / <span id="seenDays">30</span>日で自動解除）</span>
-  <span style="font-size:11px">（<span id="seenCnt">0</span>件 / <span id="seenDays">30</span>日で自動解除）</span>
-  <label>Amazon照合の上限 <input type="number" id="maxMpn" value="30" min="1" max="100"></label>
-  <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
-  <label>送料＋倉庫費 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
-  <button onclick="togglePrice()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">利益基準の設定</button>
-  <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
-</div>
+<!-- 設定（普段は畳む） -->
+<div id="cfgBox" class="panel" style="display:none">
+  <div class="ptitle">設定</div>
+  <div class="sub2">
+    <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
+    <label>送料＋倉庫費 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
+    <label>リードタイム <input type="number" id="leadTime" value="7" min="1" max="30">日</label>
+    <label>配送パターン <input type="text" id="shipGroup" value="DEFAULT" style="width:110px"></label>
+    <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
+  </div>
+  <div class="sub2" style="margin-top:8px">
+    <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
+  </div>
 
-<div class="options">
-  <label>リードタイム <input type="number" id="leadTime" value="7" min="1" max="30">日</label>
-  <label>配送パターン <input type="text" id="shipGroup" value="DEFAULT" style="width:110px"></label>
-  <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
-  <button class="primary" onclick="exportCsv()" style="padding:6px 16px;font-size:13px">出品ファイルを出力</button>
-  <button onclick="toggleTpl()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer">説明文の設定</button>
-</div>
-<div id="priceBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
-  <div style="color:var(--sub);font-size:12px;margin-bottom:8px">仕入れ値の価格帯ごとの目標利益（金額と率の大きいほうを採用）</div>
+  <div class="ptitle" style="margin-top:14px">価格帯ごとの目標利益<span class="cnt">（金額と率の大きいほうを採用）</span></div>
   <table style="width:auto;border:none;background:none">
-    <thead><tr><th style="background:none">仕入れ値の上限</th><th style="background:none">最低利益額</th><th style="background:none">最低利益率</th></tr></thead>
+    <thead><tr><th style="background:none">仕入れ値の上限</th><th style="background:none">最低利益額</th><th style="background:none">最低利益率</th><th style="background:none"></th></tr></thead>
     <tbody id="tierBody"></tbody>
   </table>
-  <button onclick="addTier()" style="background:var(--panel2);color:var(--text);border:1px solid var(--line);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;margin-top:6px">＋ 行を追加</button>
-  <div style="color:var(--sub);font-size:11px;margin-top:6px">※ 上限を空欄にすると、それ以上すべての価格帯に適用されます。上限が小さい順に自動で並び替わります</div>
-</div>
-<div id="tplBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
-  <div style="color:var(--sub);font-size:12px;margin-bottom:6px">
-    コンディション説明の定型文（使える差し込み： {型番} {状態} {タイトル}）
+  <button class="ghost" onclick="addTier()" style="margin-top:6px">＋ 行を追加</button>
+
+  <div class="ptitle" style="margin-top:14px">コンディション説明の定型文<span class="cnt">（差し込み： {型番} {状態} {タイトル}）</span></div>
+  <textarea id="noteTpl" style="width:100%;height:70px"></textarea>
+
+  <div style="margin-top:12px;text-align:right">
+    <button class="ghost" onclick="clearSeen()">確認済みをリセット</button>
+    <button class="primary" onclick="togglePanel('cfgBox')" style="padding:6px 18px">閉じる</button>
   </div>
-  <textarea id="noteTpl" style="width:100%;height:70px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px;font-size:12px"></textarea>
 </div>
-<div id="cartBox" style="display:none;background:var(--panel);border:1px solid var(--accent);border-radius:6px;padding:12px;margin-bottom:14px">
+
+<!-- ③ 出す -->
+<div id="cartBar" class="step" style="display:none;border-color:var(--accent)">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div>
+      <span class="stepnum" style="color:var(--accent)">3. 出す</span>
+      <span style="margin-left:10px">カゴに <b id="cartCnt" style="color:var(--accent);font-size:17px">0</b> 件
+        <span class="cnt">／ 想定利益合計 <b class="plus" id="cartTotal">¥0</b></span></span>
+    </div>
+    <div>
+      <button class="ghost" onclick="togglePanel('cartBox')">中身を見る／編集</button>
+      <button class="primary" onclick="exportCsv()" style="padding:8px 20px">出品ファイルを出力</button>
+    </div>
+  </div>
+</div>
+<div id="cartBox" class="panel" style="display:none">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <b style="color:var(--accent)">出品カゴ</b>
-    <button onclick="clearCart()" style="background:none;border:1px solid var(--line);color:var(--minus);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">すべて削除</button>
+    <div class="ptitle" style="margin:0">カゴの中身</div>
+    <button class="ghost" onclick="clearCart()" style="color:var(--minus)">すべて削除</button>
   </div>
   <div id="cartBody"></div>
 </div>
 
 <div id="status">キーワードを入力して分析開始</div>
+<div id="resultHead"><span class="stepnum">2. 選ぶ</span><span class="cnt">チェックを入れるとカゴに入ります</span></div>
 <div id="result"></div>
 <div class="foot">
   メルカリ最安の状態（新品未使用→Amazon新品、それ以外→Amazon中古）に合わせて比較。カート価格が無い場合は最安出品価格。<br>
@@ -172,11 +209,6 @@ const DEFAULT_TIERS = [
 ];
 let tiers = JSON.parse(localStorage.getItem("ds_tiers") || "null") || DEFAULT_TIERS;
 
-function togglePrice() {
-  const b = $("priceBox");
-  b.style.display = b.style.display === "none" ? "block" : "none";
-  renderTiers();
-}
 function renderTiers() {
   $("tierBody").innerHTML = tiers.map((t, i) => `<tr>
     <td><input type="number" value="${t.max ?? ""}" placeholder="上限なし" style="width:90px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'max',this.value)">円まで</td>
@@ -320,24 +352,18 @@ function editCart(mpn, key, val) {
   if (key === "note") noteEdits[mpn] = val;
   saveCart();
 }
-function toggleCart() {
-  const b = $("cartBox");
-  b.style.display = b.style.display === "none" ? "block" : "none";
-  renderCart();
-}
 
 function renderCart() {
   const n = cart.length;
-  const cnt = $("cartCnt"); if (cnt) cnt.textContent = n;
-  const box = $("cartBox"); if (!box || box.style.display === "none") return;
-  if (n === 0) { $("cartBody").innerHTML = `<div style="color:var(--sub);font-size:12px">カゴは空です。検索結果でチェックを入れると溜まります。</div>`; return; }
-
   const total = cart.reduce((s, c) => s + (c.profit || 0), 0);
-  $("cartBody").innerHTML = `
-    <div style="color:var(--sub);font-size:12px;margin-bottom:8px">
-      ${n}件 / 想定利益合計 <b class="plus">¥${total.toLocaleString()}</b>
-    </div>
-    <table><thead><tr>
+  $("cartBar").style.display = n ? "block" : "none";
+  $("cartCnt").textContent = n;
+  $("cartTotal").textContent = "¥" + total.toLocaleString();
+  if (!n) { $("cartBox").style.display = "none"; return; }
+
+  const box = $("cartBox");
+  if (box.style.display === "none") return;
+  $("cartBody").innerHTML = `<table><thead><tr>
       <th>型番</th><th>メルカリ</th><th>仕入</th><th>出品価格</th><th>利益</th><th>コンディション説明</th><th></th>
     </tr></thead><tbody>` +
     cart.map(c => `<tr>
@@ -346,11 +372,11 @@ function renderCart() {
         <span class="cnt">${condName(c.condition)}</span></td>
       <td class="num">¥${c.cost.toLocaleString()}</td>
       <td class="num"><input type="number" value="${c.listPrice}" onchange="editCart('${c.mpn}','listPrice',this.value)"
-        style="width:82px;text-align:right;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-family:var(--mono)"></td>
+        style="width:82px;text-align:right;font-family:var(--mono)"></td>
       <td class="num ${c.profit > 0 ? "plus" : "minus"}">¥${(c.profit || 0).toLocaleString()}</td>
       <td><textarea onchange="editCart('${c.mpn}','note',this.value)"
-        style="width:100%;min-width:240px;height:48px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:5px;font-size:11px">${c.note || ""}</textarea></td>
-      <td><button onclick="removeFromCart('${c.mpn}')" style="background:none;border:1px solid var(--line);color:var(--minus);border-radius:4px;padding:2px 8px;cursor:pointer">×</button></td>
+        style="width:100%;min-width:240px;height:48px;font-size:11px">${c.note || ""}</textarea></td>
+      <td><button class="ghost" onclick="removeFromCart('${c.mpn}')" style="color:var(--minus);padding:2px 8px">×</button></td>
     </tr>`).join("") + `</tbody></table>`;
 }
 
@@ -362,12 +388,15 @@ const DEFAULT_NOTE = `- 型番 {型番}
 - 商品の状態 {状態}
 画像の物が全てです。付属品などは事前にご確認ください。`;
 
+renderCart();
 $("noteTpl").value = localStorage.getItem("ds_note") || DEFAULT_NOTE;
 $("noteTpl").addEventListener("change", () => { localStorage.setItem("ds_note", $("noteTpl").value); render(); });
 
-function toggleTpl() {
-  const b = $("tplBox");
+function togglePanel(id) {
+  const b = $(id);
   b.style.display = b.style.display === "none" ? "block" : "none";
+  if (id === "cartBox") renderCart();
+  if (id === "cfgBox") renderTiers();
 }
 function toggleSel(mpn, on) {
   const r = rows.find(x => x.mpn === mpn);
