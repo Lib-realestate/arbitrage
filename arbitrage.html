@@ -331,7 +331,7 @@ function addToCart(r) {
   cart.push({
     mpn: r.mpn, asin: r.aItem.asin, aTitle: r.aItem.title,
     mid: mercariId(r.mItem.url), mUrl: r.mItem.url, mTitle: r.mItem.title,
-    cost: r.mItem.price, condition: r.mItem.condition,
+    cost: r.mItem.price, condition: r.mItem.condition, cond: condOf(r),
     listPrice: r.listPrice, profit: r.profit, note: buildNote(r),
     added: Date.now(),
   });
@@ -370,7 +370,11 @@ function renderCart() {
       <td><span class="mpn">${c.mpn}</span><br><span class="cnt">${c.asin}</span></td>
       <td class="ttl"><a href="${c.mUrl}" target="_blank">${(c.mTitle || "").slice(0, 40)}</a><br>
         <span class="cnt">${condName(c.condition)}</span></td>
-      <td class="num">¥${c.cost.toLocaleString()}</td>
+      <td class="num">¥${c.cost.toLocaleString()}<br>
+        <select onchange="editCart('${c.mpn}','cond',this.value)" style="font-size:11px;margin-top:3px">
+          ${Object.entries(COND_LABEL).map(([k, v]) =>
+            `<option value="${k}" ${c.cond === k ? "selected" : ""}>${v}</option>`).join("")}
+        </select></td>
       <td class="num"><input type="number" value="${c.listPrice}" onchange="editCart('${c.mpn}','listPrice',this.value)"
         style="width:82px;text-align:right;font-family:var(--mono)"></td>
       <td class="num ${c.profit > 0 ? "plus" : "minus"}">¥${(c.profit || 0).toLocaleString()}</td>
@@ -383,6 +387,7 @@ function renderCart() {
 // ===== 出品ファイル出力 =====
 const selected = new Set();
 const noteEdits = {};   // 型番ごとの個別編集した説明文
+const condEdits = {};   // 型番ごとの手動指定コンディション
 
 const DEFAULT_NOTE = `- 型番 {型番}
 - 商品の状態 {状態}
@@ -408,6 +413,25 @@ function toggleSel(mpn, on) {
     selected.delete(mpn); removeFromCart(mpn);
   }
   render();
+}
+const COND_LABEL = {
+  "New": "新品",
+  "UsedLikeNew": "中古 - ほぼ新品",
+  "UsedVeryGood": "中古 - 非常に良い",
+  "UsedGood": "中古 - 良い",
+  "UsedAcceptable": "中古 - 可",
+};
+
+// 出品コンディションを手動で変更する
+function editCond(mpn, val) {
+  condEdits[mpn] = val;
+  const c = cart.find(x => x.mpn === mpn);
+  if (c) { c.cond = val; saveCart(); }
+  render();
+}
+// 実際に使うコンディション（手動指定があればそれを優先）
+function condOf(r) {
+  return condEdits[r.mpn] || amzCondition(r.mItem);
 }
 function editNote(mpn, val) {
   noteEdits[mpn] = val;
@@ -454,7 +478,7 @@ function exportCsv() {
       "quantity": "1",
       "product-id": c.asin,
       "product-id-type": "ASIN",
-      "condition-type": amzCondition({ condition: c.condition, title: c.mTitle }),
+      "condition-type": c.cond || amzCondition({ condition: c.condition, title: c.mTitle }),
       "condition-note": String(c.note || "").replace(/[\t\r\n]+/g, " "),
       "leadtime-to-ship": lead,
       "merchant_shipping_group_name": ship,
@@ -671,7 +695,15 @@ function render() {
     if (selected.has(r.mpn) && r.aItem && r.aPrice != null && amzCondition(r.mItem)) {
       const c = cart.find(x => x.mpn === r.mpn);
       html += `<tr><td></td><td colspan="9" style="padding-top:0">
-        <div style="color:var(--sub);font-size:11px;margin-bottom:3px">コンディション説明（カゴに反映されます）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="color:var(--sub);font-size:11px">出品コンディション</span>
+          <select onchange="editCond('${r.mpn}', this.value)" style="font-size:12px">
+            ${Object.entries(COND_LABEL).map(([k, v]) =>
+              `<option value="${k}" ${(c && c.cond ? c.cond : condOf(r)) === k ? "selected" : ""}>${v}</option>`).join("")}
+          </select>
+          <span class="cnt">メルカリ表記：${condName(r.mItem.condition)}</span>
+          <span class="cnt">／ 説明文はカゴに反映されます</span>
+        </div>
         <textarea onchange="editNote('${r.mpn}', this.value)"
           style="width:100%;height:54px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:6px;font-size:11.5px">${(c && c.note != null) ? c.note : buildNote(r)}</textarea>
       </td></tr>`;
