@@ -53,6 +53,9 @@
   #status { font-size: 12.5px; color: var(--sub); margin-bottom: 10px; min-height: 18px;
     font-family: var(--mono); }
   #status .err { color: var(--minus); }
+  #status.done { color: var(--plus); font-weight: 700; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+  #status.busy::after { content: " ●"; animation: blink 1s infinite; color: var(--accent); }
 
   table { width: 100%; border-collapse: collapse; background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -251,6 +254,8 @@ async function run() {
   const kw = $("kw").value.trim();
   if (!kw) return;
   $("runBtn").disabled = true;
+  $("runBtn").textContent = "分析中…";
+  document.title = "分析中… | デルタサーチ";
   rows = [];
   render();
 
@@ -311,11 +316,15 @@ async function run() {
       render();
       await new Promise(r => setTimeout(r, 600));
     }
-    setStatus(`完了：${rows.length}型番を分析（メルカリ${items.length}件から）`);
+    const hits = rows.filter(r => r.profit > 0).length;
+    setStatus(`✅ 分析完了　${rows.length}型番／利益が出る候補 ${hits}件（メルカリ${items.length}件から）`, "done");
+    beep();
+    document.title = `✅ 完了 | デルタサーチ`;
   } catch (e) {
     setStatus(`<span class="err">エラー: ${e.message}</span>`);
-  } finally {
+    } finally {
     $("runBtn").disabled = false;
+    $("runBtn").textContent = "分析開始";
   }
 }
 
@@ -331,7 +340,23 @@ function addRow(mpn, count, mItem, aItem, aPrice, isNew, err) {
 const COND_NAMES = { 1:"新品未使用", 2:"未使用に近い", 3:"目立った傷なし", 4:"やや傷汚れ", 5:"傷汚れあり", 6:"状態悪い" };
 function condName(c) { return COND_NAMES[c] || ""; }
 
-function setStatus(html) { $("status").innerHTML = html; }
+function setStatus(html, state) {
+  const el = $("status");
+  el.innerHTML = html;
+  el.className = state || "";
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    o.start(); o.stop(ctx.currentTime + 0.35);
+  } catch (e) {}
+}
 
 function fmt(n) { return n == null ? '<span class="na">—</span>' : "¥" + n.toLocaleString(); }
 
