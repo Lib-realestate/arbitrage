@@ -98,6 +98,20 @@
   <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
 </div>
 
+<div class="options">
+  <label>出品価格 = Amazon価格 × <input type="number" id="priceRate" value="1.00" step="0.01" min="0.5" max="2"></label>
+  <label>出荷作業日数 <input type="number" id="leadTime" value="8" min="1" max="30">日</label>
+  <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
+  <button class="primary" onclick="exportCsv()" style="padding:6px 16px;font-size:13px">出品ファイルを出力</button>
+  <button onclick="toggleTpl()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer">テンプレート設定</button>
+</div>
+<div id="tplBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
+  <div style="color:var(--sub);font-size:12px;margin-bottom:6px">
+    在庫ファイルテンプレートの「sku」がある行と、それより上の行をそのまま貼り付けてください（一度貼れば保存されます）
+  </div>
+  <textarea id="tplHead" style="width:100%;height:90px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:8px;font-family:var(--mono);font-size:11px"></textarea>
+</div>
+
 <div id="status">キーワードを入力して分析開始</div>
 <div id="result"></div>
 <div class="foot">
@@ -116,6 +130,89 @@ $("ngWords").addEventListener("change", () => localStorage.setItem("ds_ng", $("n
 
 let rows = [];
 let sortKey = "profit", sortDir = -1;
+
+// ===== 出品ファイル出力 =====
+const selected = new Set();
+$("tplHead").value = localStorage.getItem("ds_tpl") || "";
+$("tplHead").addEventListener("change", () => localStorage.setItem("ds_tpl", $("tplHead").value));
+
+function toggleTpl() {
+  const b = $("tplBox");
+  b.style.display = b.style.display === "none" ? "block" : "none";
+}
+function toggleSel(mpn, on) { on ? selected.add(mpn) : selected.delete(mpn); }
+
+// メルカリの状態 → Amazonの状態
+const COND_MAP = {
+  1: { code: "11", note: "" },
+  2: { code: "1",  note: "未使用に近い、非常に良好な状態です。" },
+  3: { code: "2",  note: "目立った傷や汚れのない良好な状態です。" },
+  4: { code: "3",  note: "やや使用感がありますが、動作に問題はありません。" },
+  5: { code: "4",  note: "傷や汚れがありますが、動作に問題はありません。" },
+};
+function amzCondition(item) {
+  const c = item.condition;
+  if (c === 6) return null;                      // 状態が悪いものは出品しない
+  if (c === 1) {
+    if (/開封/.test(item.title) || !$("allowNew").checked) return COND_MAP[2];
+  }
+  return COND_MAP[c] || COND_MAP[5];
+}
+function mercariId(url) {
+  const m = String(url).match(/\/item\/(m\d+)/);
+  return m ? m[1] : "";
+}
+
+function exportCsv() {
+  let targets = rows.filter(r => selected.has(r.mpn) && r.aItem && r.aPrice != null);
+  if (targets.length === 0) {
+    alert("出品する商品にチェックを入れてください（Amazon価格が取れていない行は出力できません）");
+    return;
+  }
+
+  const raw = $("tplHead").value.trim();
+  let preLines = [], header;
+  if (raw) {
+    const lines = raw.split(/\r?\n/);
+    const hi = lines.findIndex(l => l.toLowerCase().split(/\t/).includes("sku"));
+    if (hi === -1) { alert("貼り付けた内容に sku の行が見つかりません"); return; }
+    preLines = lines.slice(0, hi);
+    header = lines[hi].split("\t");
+  } else {
+    header = ["sku","product-id","product-id-type","price","item-condition","quantity","add-delete","item-note","leadtime-to-ship"];
+  }
+
+  const skipped = targets.filter(r => amzCondition(r.mItem) === null).length;
+  targets = targets.filter(r => amzCondition(r.mItem) !== null);
+  if (targets.length === 0) { alert("選択された商品はすべて状態不良のため出品できません"); return; }
+
+  const rate = parseFloat($("priceRate").value) || 1;
+  const lead = $("leadTime").value;
+
+  const out = targets.map(r => {
+    const cond = amzCondition(r.mItem);
+    const v = {
+      "sku": mercariId(r.mItem.url) || r.mpn,
+      "product-id": r.aItem.asin,
+      "product-id-type": "1",
+      "price": String(Math.round(r.aPrice * rate)),
+      "item-condition": cond.code,
+      "quantity": "1",
+      "add-delete": "a",
+      "item-note": cond.note,
+      "leadtime-to-ship": lead,
+    };
+    return header.map(h => v[h.trim().toLowerCase()] ?? "").join("\t");
+  });
+
+  const text = [...preLines, header.join("\t"), ...out].join("\r\n");
+  const blob = new Blob(["\uFEFF" + text], { type: "text/tab-separated-values" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `amazon_listing_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+  setStatus(`出品ファイルを出力しました（${targets.length}件${skipped ? ` / 状態不良で除外 ${skipped}件` : ""}）`);
+}
 
 // ---- 型番抽出 ----
 // 全角→半角、大文字化、ハイフン類統一
@@ -248,7 +345,7 @@ function render() {
   const th = (k, label) => `<th class="${sortKey===k?'sorted':''}" onclick="sortBy('${k}')">${label} ${arrow(k)}</th>`;
 
   let html = `<table><thead><tr>
-    <th>型番</th><th></th><th>メルカリ最安</th>
+    <th style="width:30px"></th><th>型番</th><th></th><th>メルカリ最安</th>
     ${th("aPrice","Amazon価格")}<th></th><th>Amazon商品</th>
     ${th("diff","差額")}${th("ratio","比率")}${th("profit","想定利益")}
   </tr></thead><tbody>`;
@@ -256,6 +353,7 @@ function render() {
   for (const r of sorted) {
     const m = r.mItem, a = r.aItem;
     html += `<tr>
+      <td><input type="checkbox" ${selected.has(r.mpn) ? "checked" : ""} onchange="toggleSel('${r.mpn}', this.checked)"></td>
       <td><span class="mpn">${r.mpn}</span><br><span class="cnt">${r.count}件</span></td>
       <td>${m.image ? `<a href="${m.url}" target="_blank"><img class="thumb" src="${m.image}"></a>` : ""}</td>
       <td class="ttl"><span class="src m">メルカリ</span><br>
