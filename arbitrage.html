@@ -104,6 +104,8 @@
   </label>
   <label><input type="checkbox" id="skipSeen" checked> 確認済みを除外</label>
   <button onclick="clearSeen()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">確認済みをリセット</button>
+  <span style="font-size:11px">（<span id="seenCnt">0</span>件 / <span id="seenDays">30</span>日で自動解除）</span>
+  <span style="font-size:11px">（<span id="seenCnt">0</span>件 / <span id="seenDays">30</span>日で自動解除）</span>
   <label>Amazon照合の上限 <input type="number" id="maxMpn" value="30" min="1" max="100"></label>
   <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
   <label>送料＋倉庫費 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
@@ -226,13 +228,40 @@ function recalc(r) {
 }
 
 // ===== 確認済み商品の記録 =====
-let seen = new Set(JSON.parse(localStorage.getItem("ds_seen") || "[]"));
-function saveSeen() { localStorage.setItem("ds_seen", JSON.stringify([...seen].slice(-8000))); }
+const SEEN_DAYS = 30;   // 何日で除外を解除するか
+
+let seen = loadSeen();
+function loadSeen() {
+  const raw = JSON.parse(localStorage.getItem("ds_seen") || "{}");
+  const map = Array.isArray(raw) ? {} : raw;         // 旧形式（配列）は破棄
+  const limit = Date.now() - SEEN_DAYS * 86400000;
+  for (const k in map) if (map[k] < limit) delete map[k];
+  return map;
+}
+function saveSeen() {
+  const keys = Object.keys(seen);
+  if (keys.length > 30000) {                          // 念のための上限
+    keys.sort((a, b) => seen[a] - seen[b]).slice(0, keys.length - 30000)
+        .forEach(k => delete seen[k]);
+  }
+  localStorage.setItem("ds_seen", JSON.stringify(seen));
+  updateSeenCnt();
+}
 function clearSeen() {
-  if (!confirm(`確認済み ${seen.size}件をリセットします。よろしいですか？`)) return;
-  seen = new Set(); saveSeen();
+  if (!confirm(`確認済み ${Object.keys(seen).length}件をリセットします。よろしいですか？`)) return;
+  seen = {}; saveSeen();
+  updateSeenCnt();
   setStatus("確認済みをリセットしました");
 }
+
+function updateSeenCnt() {
+  const el = $("seenCnt");
+  if (el) el.textContent = Object.keys(seen).length.toLocaleString();
+  const d = $("seenDays");
+  if (d) d.textContent = SEEN_DAYS;
+}
+updateSeenCnt();
+
 // 出品からの経過日数
 function daysSince(s) {
   if (!s) return null;
@@ -374,9 +403,10 @@ async function run() {
     const ngs = $("ngWords").value.split(",").map(s => s.trim()).filter(Boolean);
     let items = mData.items.filter(it => !ngHit(it.title, ngs));
     const beforeSeen = items.length;
-    if ($("skipSeen").checked) items = items.filter(it => !seen.has(it.id));
+    if ($("skipSeen").checked) items = items.filter(it => !seen[it.id]);
     const skipSeenCnt = beforeSeen - items.length;
-    items.forEach(it => seen.add(it.id));
+    const now = Date.now();
+    items.forEach(it => { seen[it.id] = now; });
     saveSeen();
     if (items.length === 0) throw new Error("新しい商品がありませんでした（確認済みを除外した結果0件）");
     setStatus(`メルカリ ${mData.count}件取得（NG除外 ${mData.count - beforeSeen}件／確認済み除外 ${skipSeenCnt}件 → 残り ${items.length}件）→ 型番抽出中…`, "busy");
