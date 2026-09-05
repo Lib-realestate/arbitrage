@@ -106,17 +106,25 @@
   <button onclick="clearSeen()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">確認済みをリセット</button>
   <label>Amazon照合の上限 <input type="number" id="maxMpn" value="30" min="1" max="100"></label>
   <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
-  <label>送料概算 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
+  <label>送料＋倉庫費 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
+  <button onclick="togglePrice()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px">利益基準の設定</button>
   <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
 </div>
 
 <div class="options">
-  <label>出品価格 = Amazon価格 × <input type="number" id="priceRate" value="1.00" step="0.01" min="0.5" max="2"></label>
   <label>リードタイム <input type="number" id="leadTime" value="7" min="1" max="30">日</label>
   <label>配送パターン <input type="text" id="shipGroup" value="DEFAULT" style="width:110px"></label>
   <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
   <button class="primary" onclick="exportCsv()" style="padding:6px 16px;font-size:13px">出品ファイルを出力</button>
   <button onclick="toggleTpl()" style="background:var(--panel2);color:var(--sub);border:1px solid var(--line);padding:6px 12px;border-radius:6px;cursor:pointer">説明文の設定</button>
+</div>
+<div id="priceBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
+  <div style="color:var(--sub);font-size:12px;margin-bottom:8px">仕入れ値の価格帯ごとの目標利益（金額と率の大きいほうを採用）</div>
+  <table style="width:auto;border:none;background:none">
+    <thead><tr><th style="background:none">仕入れ値の上限</th><th style="background:none">最低利益額</th><th style="background:none">最低利益率</th></tr></thead>
+    <tbody id="tierBody"></tbody>
+  </table>
+  <div style="color:var(--sub);font-size:11px;margin-top:6px">※ 上限を空欄にすると、それ以上すべての価格帯に適用されます</div>
 </div>
 <div id="tplBox" style="display:none;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:14px">
   <div style="color:var(--sub);font-size:12px;margin-bottom:6px">
@@ -143,6 +151,61 @@ $("ngWords").addEventListener("change", () => localStorage.setItem("ds_ng", $("n
 
 let rows = [];
 let sortKey = "profit", sortDir = -1;
+
+// ===== 価格帯別の利益基準 =====
+const DEFAULT_TIERS = [
+  { max: 5000,  yen: 800,  pct: 25 },
+  { max: 15000, yen: 1500, pct: 20 },
+  { max: 30000, yen: 3000, pct: 15 },
+  { max: null,  yen: 5000, pct: 12 },
+];
+let tiers = JSON.parse(localStorage.getItem("ds_tiers") || "null") || DEFAULT_TIERS;
+
+function togglePrice() {
+  const b = $("priceBox");
+  b.style.display = b.style.display === "none" ? "block" : "none";
+  renderTiers();
+}
+function renderTiers() {
+  $("tierBody").innerHTML = tiers.map((t, i) => `<tr>
+    <td><input type="number" value="${t.max ?? ""}" placeholder="上限なし" style="width:90px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'max',this.value)">円まで</td>
+    <td><input type="number" value="${t.yen}" style="width:70px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'yen',this.value)">円</td>
+    <td><input type="number" value="${t.pct}" style="width:55px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:3px 5px" onchange="setTier(${i},'pct',this.value)">%</td>
+  </tr>`).join("");
+}
+function setTier(i, key, val) {
+  tiers[i][key] = (key === "max" && val === "") ? null : parseFloat(val) || 0;
+  localStorage.setItem("ds_tiers", JSON.stringify(tiers));
+  rows.forEach(recalc);
+  render();
+}
+function tierOf(cost) {
+  return tiers.find(t => t.max == null || cost <= t.max) || tiers[tiers.length - 1];
+}
+
+// 出品価格と利益を計算する
+function recalc(r) {
+  const fee  = parseFloat($("feePct").value) / 100;
+  const ship = parseFloat($("shipCost").value);
+  const cost = r.mItem.price;
+  const t    = tierOf(cost);
+
+  // 金額基準と率基準の大きいほうを目標利益にする
+  const goal = Math.max(t.yen, Math.round((cost + ship) * t.pct / 100));
+
+  // 手数料を割り戻して必要な販売価格を求める
+  const need = Math.ceil((cost + ship + goal) / (1 - fee));
+
+  if (r.aPrice == null) { r.listPrice = null; r.profit = null; r.meetsGoal = false; return; }
+
+  r.listPrice = need <= r.aPrice ? r.aPrice - 1 : need;
+  r.undercut  = need <= r.aPrice;
+  r.profit    = Math.round(r.listPrice * (1 - fee) - ship - cost);
+  r.goal      = goal;
+  r.meetsGoal = r.profit >= goal;
+  r.diff      = r.aPrice - cost;
+  r.ratio     = cost / r.aPrice;
+}
 
 // ===== 確認済み商品の記録 =====
 let seen = new Set(JSON.parse(localStorage.getItem("ds_seen") || "[]"));
@@ -214,7 +277,6 @@ function exportCsv() {
   targets = targets.filter(r => amzCondition(r.mItem) !== null);
   if (targets.length === 0) { alert("選択された商品はすべて状態不良のため出品できません"); return; }
 
-  const rate = parseFloat($("priceRate").value) || 1;
   const lead = $("leadTime").value;
   const ship = $("shipGroup").value.trim() || "DEFAULT";
 
@@ -222,7 +284,7 @@ function exportCsv() {
     const mid = mercariId(r.mItem.url);
     const v = {
       "sku": `m_${mid}-${r.mItem.price}`,
-      "price": String(Math.round(r.aPrice * rate)),
+      "price": String(r.listPrice),
       "quantity": "1",
       "product-id": r.aItem.asin,
       "product-id-type": "ASIN",
@@ -359,14 +421,11 @@ async function run() {
   }
 }
 
-function addRow(mpn, count, mItem, aItem, aPrice, isNew, err, gItems) {
-  const fee = parseFloat($("feePct").value) / 100;
-  const ship = parseFloat($("shipCost").value);
-  const diff = aPrice != null ? aPrice - mItem.price : null;
-  const ratio = aPrice ? mItem.price / aPrice : null;
-  const profit = aPrice != null ? Math.round(aPrice * (1 - fee) - ship - mItem.price) : null;
-  const days = daysSince(mItem.created);
-  rows.push({ mpn, count, mItem, aItem, aPrice, isNew, diff, ratio, profit, err, days });
+function addRow(mpn, count, mItem, aItem, aPrice, isNew, err) {
+  const r = { mpn, count, mItem, aItem, aPrice, isNew, err,
+              days: daysSince(mItem.created), diff: null, ratio: null, profit: null };
+  recalc(r);
+  rows.push(r);
 }
 
 const COND_NAMES = { 1:"新品未使用", 2:"未使用に近い", 3:"目立った傷なし", 4:"やや傷汚れ", 5:"傷汚れあり", 6:"状態悪い" };
@@ -411,7 +470,7 @@ function render() {
   let html = `<table><thead><tr>
     <th style="width:30px"></th><th>型番</th><th></th><th>メルカリ最安</th>
     ${th("aPrice","Amazon価格")}<th></th><th>Amazon商品</th>
-    ${th("diff","差額")}${th("ratio","比率")}${th("profit","想定利益")}
+    ${th("diff","差額")}${th("ratio","比率")}${th("listPrice","出品価格")}${th("profit","想定利益")}
   </tr></thead><tbody>`;
 
   for (const r of sorted) {
@@ -433,10 +492,11 @@ function render() {
         : `<span class="na">${r.err || "該当なし"}</span>`}</td>
       <td class="num ${r.diff > 0 ? "plus" : "minus"}">${r.diff != null ? (r.diff>0?"+":"") + "¥" + r.diff.toLocaleString() : '<span class="na">—</span>'}</td>
       <td class="num">${r.ratio != null ? Math.round(r.ratio * 100) + "%" : '<span class="na">—</span>'}</td>
-      <td class="num ${r.profit > 0 ? "plus" : "minus"}">${r.profit != null ? (r.profit>0?"+":"") + "¥" + r.profit.toLocaleString() : '<span class="na">—</span>'}</td>
+      <td class="num">${r.listPrice != null ? "¥" + r.listPrice.toLocaleString() + `<br><span class="cnt">${r.undercut ? "最安" : "上回る"}</span>` : '<span class="na">—</span>'}</td>
+      <td class="num ${r.meetsGoal ? "plus" : "minus"}">${r.profit != null ? (r.profit>0?"+":"") + "¥" + r.profit.toLocaleString() + `<br><span class="cnt">目標¥${(r.goal||0).toLocaleString()}</span>` : '<span class="na">—</span>'}</td>
         </tr>`;
     if (selected.has(r.mpn) && amzCondition(r.mItem)) {
-      html += `<tr><td></td><td colspan="8" style="padding-top:0">
+      html += `<tr><td></td><td colspan="9" style="padding-top:0">
         <div style="color:var(--sub);font-size:11px;margin-bottom:3px">コンディション説明（この商品だけ編集できます）</div>
         <textarea onchange="editNote('${r.mpn}', this.value)"
           style="width:100%;height:54px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:4px;padding:6px;font-size:11.5px">${buildNote(r)}</textarea>
