@@ -135,8 +135,14 @@
     <label>販売手数料 <input type="number" id="feePct" value="10" min="0" max="30">%</label>
     <label>送料＋倉庫費 <input type="number" id="shipCost" value="800" min="0" step="100">円</label>
     <label>リードタイム <input type="number" id="leadTime" value="7" min="1" max="30">日</label>
-    <label>配送パターン <input type="text" id="shipGroup" value="DEFAULT" style="width:110px"></label>
+    <label>配送テンプレート名 <input type="text" id="shipGroup" value="" placeholder="空欄可" style="width:130px"></label>
     <label><input type="checkbox" id="allowNew" checked> 新品未使用を新品として出す</label>
+    </div>
+  <div class="sub2" style="margin-top:10px">
+    <label>Amazonのテンプレート
+      <input type="file" accept=".xlsm,.xlsx" onchange="onTplPick(this)" style="font-size:11.5px">
+    </label>
+    <span class="cnt" id="tplName">未登録</span>
   </div>
   <div class="sub2" style="margin-top:8px">
     <label style="flex:1">NGワード <input type="text" id="ngWords" style="width:100%"></label>
@@ -194,8 +200,8 @@ const WORKER = "https://arbitrage-ai.elle-71-boc.workers.dev";
 const DEFAULT_NG = "片耳,右耳,左耳,右のみ,左のみ,ケースのみ,充電ケース,イヤーピース,付属品,ジャンク,部品取り,訳あり,訳アリ,箱のみ,ケーブル,カバー,保護,フィルム,互換";
 
 const $ = id => document.getElementById(id);
-$("ngWords").value = localStorage.getItem("ds_ng") || DEFAULT_NG;
-$("ngWords").addEventListener("change", () => localStorage.setItem("ds_ng", $("ngWords").value));
+$("ngWords").value = localStorage.getItem("ro_ng") || DEFAULT_NG;
+$("ngWords").addEventListener("change", () => localStorage.setItem("ro_ng", $("ngWords").value));
 
 let rows = [];
 let sortKey = "profit", sortDir = -1;
@@ -207,7 +213,7 @@ const DEFAULT_TIERS = [
   { max: 30000, yen: 3000, pct: 15 },
   { max: null,  yen: 5000, pct: 12 },
 ];
-let tiers = JSON.parse(localStorage.getItem("ds_tiers") || "null") || DEFAULT_TIERS;
+let tiers = JSON.parse(localStorage.getItem("ro_tiers") || "null") || DEFAULT_TIERS;
 
 function renderTiers() {
   $("tierBody").innerHTML = tiers.map((t, i) => `<tr>
@@ -230,7 +236,7 @@ function delTier(i) {
 function sortTiers() {
   // 上限が小さい順に並べ、上限なし（null）を最後に置く
   tiers.sort((a, b) => (a.max ?? Infinity) - (b.max ?? Infinity));
-  localStorage.setItem("ds_tiers", JSON.stringify(tiers));
+  localStorage.setItem("ro_tiers", JSON.stringify(tiers));
   renderTiers();
   rows.forEach(recalc);
   render();
@@ -284,7 +290,7 @@ const SEEN_DAYS = 30;   // 何日で除外を解除するか
 
 let seen = loadSeen();
 function loadSeen() {
-  const raw = JSON.parse(localStorage.getItem("ds_seen") || "{}");
+  const raw = JSON.parse(localStorage.getItem("ro_seen") || "{}");
   const map = Array.isArray(raw) ? {} : raw;         // 旧形式（配列）は破棄
   const limit = Date.now() - SEEN_DAYS * 86400000;
   for (const k in map) if (map[k] < limit) delete map[k];
@@ -296,7 +302,7 @@ function saveSeen() {
     keys.sort((a, b) => seen[a] - seen[b]).slice(0, keys.length - 30000)
         .forEach(k => delete seen[k]);
   }
-  localStorage.setItem("ds_seen", JSON.stringify(seen));
+  localStorage.setItem("ro_seen", JSON.stringify(seen));
   updateSeenCnt();
 }
 function clearSeen() {
@@ -323,8 +329,8 @@ function daysSince(s) {
 }
 
 // ===== 出品カゴ =====
-let cart = JSON.parse(localStorage.getItem("ds_cart") || "[]");
-function saveCart() { localStorage.setItem("ds_cart", JSON.stringify(cart)); renderCart(); }
+let cart = JSON.parse(localStorage.getItem("ro_cart") || "[]");
+function saveCart() { localStorage.setItem("ro_cart", JSON.stringify(cart)); renderCart(); }
 
 function addToCart(r) {
   if (cart.some(c => c.mpn === r.mpn)) return;
@@ -394,8 +400,9 @@ const DEFAULT_NOTE = `- 型番 {型番}
 画像の物が全てです。付属品などは事前にご確認ください。`;
 
 renderCart();
-$("noteTpl").value = localStorage.getItem("ds_note") || DEFAULT_NOTE;
-$("noteTpl").addEventListener("change", () => { localStorage.setItem("ds_note", $("noteTpl").value); render(); });
+updateTplLabel();
+$("noteTpl").value = localStorage.getItem("ro_note") || DEFAULT_NOTE;
+$("noteTpl").addEventListener("change", () => { localStorage.setItem("ro_note", $("noteTpl").value); render(); });
 
 function togglePanel(id) {
   const b = $(id);
@@ -415,11 +422,11 @@ function toggleSel(mpn, on) {
   render();
 }
 const COND_LABEL = {
-  "New": "新品",
-  "UsedLikeNew": "中古 - ほぼ新品",
-  "UsedVeryGood": "中古 - 非常に良い",
-  "UsedGood": "中古 - 良い",
-  "UsedAcceptable": "中古 - 可",
+  "新品": "新品",
+  "中古-ほぼ新品": "中古 - ほぼ新品",
+  "中古-非常に良い": "中古 - 非常に良い",
+  "中古-良い": "中古 - 良い",
+  "中古-許容可能": "中古 - 許容可能",
 };
 
 // 出品コンディションを手動で変更する
@@ -441,13 +448,13 @@ function editNote(mpn, val) {
 
 // メルカリの状態 → Amazonのコンディション
 const COND_MAP = {
-  1: "New", 2: "UsedLikeNew", 3: "UsedVeryGood", 4: "UsedGood", 5: "UsedAcceptable",
+  1: "新品", 2: "中古-ほぼ新品", 3: "中古-非常に良い", 4: "中古-良い", 5: "中古-許容可能",
 };
 function amzCondition(item) {
   const c = item.condition;
   if (c === 6) return null;                       // 状態が悪いものは出品しない
-  if (c === 1 && (/開封/.test(item.title) || !$("allowNew").checked)) return "UsedLikeNew";
-  return COND_MAP[c] || "UsedAcceptable";
+  if (c === 1 && (/開封/.test(item.title) || !$("allowNew").checked)) return "中古-ほぼ新品";
+  return COND_MAP[c] || "中古-許容可能";
 }
 function mercariId(url) {
   const m = String(url).match(/\/item\/(m\d+)/);
@@ -461,47 +468,99 @@ function buildNote(r) {
     .replace(/\{タイトル\}/g, r.mItem.title);
 }
 
-const TPL_LINE1 = "TemplateType=Offer\tVersion=2020.000";
-const TPL_JP = "商品管理番号\t販売価格\tポイントパーセント\t在庫数\t商品コード(JANコード等)\t商品コードのタイプ\t商品のコンディション\t商品のコンディション説明\t対象ASIN\t商品名\t更新タイプ\tセール価格\tセールポイントパーセント\tセール開始日\tセール終了日\tリードタイム(出荷までにかかる日数)\t商品の公開日\tギフト\tギフトメッセージ\tフルフィルメントセンターID\t使用しない支払方法\t出品者SKUのメイン画像URL\t出品者SKUのサブ画像URL1\t出品者SKUのサブ画像URL2\t出品者SKUのサブ画像URL3\t出品者SKUのサブ画像URL4\t出品者SKUのサブ画像URL5\t配送パターン\t商品タックスコード\t電池の有無\t電池付属\tバッテリーセルタイプ\t電池のタイプ\tフル電池数\t電池の重量(グラム)\tリチウムイオン電池単数\tリチウムメタル電池単数\tリチウム電池パッケージ\tリチウム電池エネルギー含有量\tリチウム電池重量\t危険物1\t危険物2\t危険物3\t危険物4\t危険物5\t国連(UN)番号\t安全データシート(SDS) URL\t商品の重量\t商品の容量\t引火点(°C)\t危険物ラベル1\t危険物ラベル2\t危険物ラベル3\t商品の重量の単位\t商品の容量の単位\tリチウム電池のエネルギー量測定単位\tリチウム電池の重量の測定単位\t電池の重量の測定単位";
-const TPL_EN = ["sku","price","standard-price-points-percent","quantity","product-id","product-id-type","condition-type","condition-note","ASIN-hint","title","operation-type","sale-price","sale-price-points-percent","sale-start-date","sale-end-date","leadtime-to-ship","launch-date","is-giftwrap-available","is-gift-message-available","fulfillment-center-id","optional-payment-type-exclusion","main-offer-image","offer-image1","offer-image2","offer-image3","offer-image4","offer-image5","merchant_shipping_group_name","product-tax-code","batteries_required","are_batteries_included","battery_cell_composition","battery_type","number_of_batteries","battery_weight","number_of_lithium_ion_cells","number_of_lithium_metal_cells","lithium_battery_packaging","lithium_battery_energy_content","lithium_battery_weight","supplier_declared_dg_hz_regulation1","supplier_declared_dg_hz_regulation2","supplier_declared_dg_hz_regulation3","supplier_declared_dg_hz_regulation4","supplier_declared_dg_hz_regulation5","hazmat_united_nations_regulatory_id","safety_data_sheet_url","item_weight","item_volume","flash_point","ghs_classification_class1","ghs_classification_class2","ghs_classification_class3","item_weight_unit_of_measure","item_volume_unit_of_measure","lithium_battery_energy_content_unit_of_measure","lithium_battery_weight_unit_of_measure","battery_weight_unit_of_measure"];
+// 新テンプレート（126列）の列位置
+const COL_SKU = 1, COL_ASIN = 5, COL_COND = 12, COL_NOTE = 13, COL_IMG = 19,
+      COL_CH = 38, COL_QTY = 39, COL_LEAD = 40, COL_PRICE = 43,
+      COL_SHIP = 68, COL_DG = 107, COL_TOTAL = 126;
 
-function exportCsv() {
-  if (cart.length === 0) { alert("カゴが空です。検索結果でチェックを入れてください"); return; }
-
+function buildRows() {
   const lead = $("leadTime").value;
-  const ship = $("shipGroup").value.trim() || "DEFAULT";
+  const ship = $("shipGroup").value.trim();
+  return cart.map(c => {
+    const row = new Array(COL_TOTAL).fill("");
+    const put = (n, v) => { row[n - 1] = v; };
+    const cond = COND_LABEL[c.cond] ? c.cond
+               : amzCondition({ condition: c.condition, title: c.mTitle });
 
-  const lines = cart.map(c => {
-    const v = {
-      "sku": `m_${c.mid}-${c.cost}`,
-      "price": String(c.listPrice),
-      "quantity": "1",
-      "product-id": c.asin,
-      "product-id-type": "ASIN",
-      "condition-type": c.cond || amzCondition({ condition: c.condition, title: c.mTitle }),
-      "condition-note": String(c.note || "").replace(/[\t\r\n]+/g, " "),
-      "leadtime-to-ship": lead,
-      "merchant_shipping_group_name": ship,
-      "batteries_required": "FALSE",
-      "supplier_declared_dg_hz_regulation1": "not_applicable",
-    };
+    put(COL_SKU, `m_${c.mid}-${c.cost}`);
+    put(COL_ASIN, c.asin);
+    put(COL_COND, cond);
+    put(COL_NOTE, String(c.note || "").replace(/[\t\r\n]+/g, " "));
     for (let i = 1; i <= 6; i++) {
-      v[i === 1 ? "main-offer-image" : `offer-image${i - 1}`] =
-        c.mid ? `https://static.mercdn.net/item/detail/orig/photos/${c.mid}_${i}.jpg` : "";
+      put(i === 1 ? COL_IMG : 18 + i,
+          c.mid ? `https://static.mercdn.net/item/detail/orig/photos/${c.mid}_${i}.jpg` : "");
     }
-    return TPL_EN.map(k => v[k] ?? "").join("\t");
+    put(COL_CH, "出品者出荷（デフォルト）");
+    put(COL_QTY, 1);
+    put(COL_LEAD, Number(lead) || 7);
+    put(COL_PRICE, String(c.listPrice));
+    put(COL_SHIP, ship);
+    put(COL_DG, "該当なし");
+    return row;
   });
+}
 
-  const text = [TPL_LINE1, TPL_JP, TPL_EN.join("\t"), ...lines].join("\r\n");
-  const blob = new Blob(["\uFEFF" + text], { type: "text/tab-separated-values" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `mercari_amazon_${new Date().toISOString().slice(0,10)}.txt`;
-  a.click();
+// ===== Amazonテンプレートの登録 =====
+let tplB64 = localStorage.getItem("ro_tpl") || "";
+let tplName = localStorage.getItem("ro_tplname") || "";
 
-  const n = cart.length;
-  cart = []; selected.clear(); saveCart(); render();
-  setStatus(`✅ 出品ファイルを出力しました（${n}件）／カゴを空にしました`, "done");
+function onTplPick(input) {
+  const f = input.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      localStorage.setItem("ro_tpl", String(r.result).split(",")[1]);
+      localStorage.setItem("ro_tplname", f.name);
+      tplB64 = localStorage.getItem("ro_tpl");
+      tplName = f.name;
+      updateTplLabel();
+      setStatus(`テンプレートを登録しました：${f.name}`, "done");
+    } catch (e) {
+      alert("テンプレートを保存できませんでした。ファイルが大きすぎる可能性があります。");
+    }
+  };
+  r.readAsDataURL(f);
+}
+function updateTplLabel() {
+  const el = $("tplName");
+  if (el) el.textContent = tplName ? `登録済み：${tplName}` : "未登録";
+}
+function loadSheetJS() {
+  return new Promise((res, rej) => {
+    if (window.XLSX) return res();
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => res();
+    s.onerror = () => rej(new Error("読み込みに失敗しました"));
+    document.head.appendChild(s);
+  });
+}
+
+async function exportCsv() {
+  if (cart.length === 0) { alert("カゴが空です。検索結果でチェックを入れてください"); return; }
+  if (!tplB64) {
+    alert("先に「⚙ 設定」からAmazonのテンプレートを登録してください");
+    $("cfgBox").style.display = "block";
+    return;
+  }
+  setStatus("出品ファイルを作成中…", "busy");
+  try {
+    await loadSheetJS();
+    const wb = XLSX.read(tplB64, { type: "base64", bookVBA: true });
+    const sheet = wb.SheetNames.indexOf("テンプレート") >= 0 ? "テンプレート" : wb.SheetNames[0];
+    const ws = wb.Sheets[sheet];
+    XLSX.utils.sheet_add_aoa(ws, buildRows(), { origin: "A7" });
+
+    const n = cart.length;
+    const stamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `relayone_${stamp}.xlsm`, { bookType: "xlsm", bookVBA: true });
+
+    cart = []; selected.clear(); saveCart(); render();
+    setStatus(`✅ 出品ファイルを出力しました（${n}件）／カゴを空にしました`, "done");
+  } catch (e) {
+    setStatus(`<span class="err">出力エラー: ${e.message}</span>`);
+  }
 }
 
 // ---- 型番抽出 ----
