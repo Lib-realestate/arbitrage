@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>注文管理 | デルタサーチ</title>
+<title>注文管理 | relay ONE</title>
 <style>
   :root {
     --bg: #12151c; --panel: #1a1f2a; --panel2: #222836; --line: #2e3648;
@@ -92,8 +92,8 @@
 </head>
 <body>
 
-<h1><span class="delta">Δ</span> 注文管理</h1>
-<div class="tagline">Amazonで売れた注文の仕入れ・発送・キャンセルを管理 ／ <a href="arbitrage.html">← デルタサーチに戻る</a></div>
+<h1>注文を処理する</h1>
+<div class="tagline">Amazonで売れた注文の仕入れ・発送・キャンセルを管理</div>
 
 <div class="topbar">
   <button class="primary" id="refreshBtn" onclick="refresh()">注文を更新</button>
@@ -221,7 +221,7 @@ async function refresh() {
     saveTrack();
     render();
     setStatus(`更新完了 ${new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}　未出荷 ${orders.length}件`);
-    document.title = `${orders.filter(o => t(o.orderId).state !== "shipped").length ? "●" : ""} 注文管理 | デルタサーチ`;
+    document.title = `${orders.filter(o => t(o.orderId).state !== "shipped").length ? "●" : ""} 注文管理 | relay ONE`;
   } catch (e) {
     setStatus(`<span class="err">エラー: ${e.message}</span>`);
   } finally {
