@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>デルタサーチ</title>
+<style>
+  :root { --bg: #12151c; --panel: #1a1f2a; --line: #2e3648; --text: #dfe4ee;
+    --sub: #8b93a7; --accent: #4fc3f7; --minus: #f2707a; --mono: "Consolas", "SF Mono", monospace; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; }
+  .tabs { display: flex; align-items: center; gap: 4px; padding: 8px 18px 0;
+    background: var(--panel); border-bottom: 1px solid var(--line); height: 46px; }
+  .brand { font-size: 15px; letter-spacing: .08em; margin-right: 18px; }
+  .brand span { color: var(--accent); font-family: var(--mono); }
+  .tab { padding: 9px 18px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 13.5px;
+    color: var(--sub); border: 1px solid transparent; border-bottom: none; user-select: none; }
+  .tab:hover { color: var(--text); }
+  .tab.on { background: var(--bg); color: var(--text); border-color: var(--line); font-weight: 700; }
+  .tab .dot { color: var(--minus); margin-left: 4px; }
+  iframe { width: 100%; height: calc(100% - 46px); border: none; display: none; }
+  iframe.on { display: block; }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="brand"><span>Δ</span> デルタサーチ</div>
+  <div class="tab" data-tab="search" onclick="show('search')">1. 商品を探す・出品する</div>
+  <div class="tab" data-tab="orders" onclick="show('orders')">2. 注文を処理する<span class="dot" id="odDot"></span></div>
+</div>
+
+<iframe id="search" src="arbitrage.html"></iframe>
+<iframe id="orders" src="orders.html"></iframe>
+
+<script>
+function show(id) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.tab === id));
+  document.querySelectorAll("iframe").forEach(f => f.classList.toggle("on", f.id === id));
+  localStorage.setItem("ds_tab", id);
+}
+show(localStorage.getItem("ds_tab") || "search");
+
+// 注文画面に未処理があればタブに●を出す（30秒ごとに確認）
+function checkOrders() {
+  try {
+    const title = document.getElementById("orders").contentDocument?.title || "";
+    document.getElementById("odDot").textContent = title.startsWith("●") ? "●" : "";
+  } catch (e) {}
+}
+setInterval(checkOrders, 30000);
+setTimeout(checkOrders, 8000);
+</script>
+</body>
+</html>

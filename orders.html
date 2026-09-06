@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>注文管理 | デルタサーチ</title>
+<style>
+  :root {
+    --bg: #12151c; --panel: #1a1f2a; --panel2: #222836; --line: #2e3648;
+    --text: #dfe4ee; --sub: #8b93a7; --accent: #4fc3f7;
+    --plus: #55d68a; --minus: #f2707a; --warn: #f0a13c;
+    --mono: "Consolas", "SF Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text);
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    font-size: 14px; padding: 18px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 18px; letter-spacing: .08em; margin-bottom: 2px; }
+  h1 .delta { color: var(--accent); font-family: var(--mono); }
+  .tagline { color: var(--sub); font-size: 12px; margin-bottom: 14px; }
+  .tagline a { color: var(--accent); text-decoration: none; }
+  a { color: var(--accent); }
+
+  .topbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  button.primary { background: var(--accent); color: #0a121a; border: none; font-weight: 700;
+    padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  button.primary:disabled { opacity: .4; cursor: default; }
+  button.ghost { background: none; color: var(--sub); border: 1px solid var(--line);
+    padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  button.ghost:hover { color: var(--text); border-color: var(--sub); }
+  button.ok { background: var(--plus); color: #06130b; border: none; font-weight: 700;
+    padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  button.ng { background: none; color: var(--minus); border: 1px solid var(--minus);
+    padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+  #status { font-size: 12.5px; color: var(--sub); font-family: var(--mono); min-height: 18px; }
+  #status .err { color: var(--minus); }
+
+  .section { margin-bottom: 22px; }
+  .sechead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+  .sechead h2 { font-size: 15px; }
+  .sechead .n { font-family: var(--mono); font-size: 13px; color: var(--sub); }
+  .empty { color: var(--sub); font-size: 12.5px; padding: 12px 14px; background: var(--panel);
+    border: 1px dashed var(--line); border-radius: 6px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 8px; display: grid;
+    grid-template-columns: 70px 1fr 200px; gap: 14px; align-items: start; }
+  .card.urgent { border-color: var(--minus); background: #241a1f; }
+  .card.warn { border-color: var(--warn); }
+  .days { text-align: center; }
+  .days b { display: block; font-size: 28px; font-family: var(--mono); line-height: 1; }
+  .days span { font-size: 10.5px; color: var(--sub); }
+  .urgent .days b { color: var(--minus); }
+  .warn .days b { color: var(--warn); }
+  .info .ttl { font-size: 13px; line-height: 1.45; margin-bottom: 4px; }
+  .info .meta { font-size: 11.5px; color: var(--sub); line-height: 1.7; }
+  .info .meta b { color: var(--text); font-family: var(--mono); font-weight: 400; }
+  .money { display: flex; gap: 14px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
+  .money div { color: var(--sub); }
+  .money b { display: block; font-family: var(--mono); font-size: 14px; color: var(--text); }
+  .plus { color: var(--plus) !important; } .minus { color: var(--minus) !important; }
+  .warnc { color: var(--warn) !important; }
+  .stock { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px;
+    border-radius: 3px; margin-bottom: 4px; }
+  .stock.ok { background: #1d3a2a; color: var(--plus); }
+  .stock.ng { background: #3a1d24; color: var(--minus); }
+  .stock.up { background: #3a2d18; color: var(--warn); }
+  .stock.wait { background: var(--panel2); color: var(--sub); }
+  .actions { display: flex; flex-direction: column; gap: 6px; }
+  .actions a.btn { display: block; text-align: center; background: var(--panel2);
+    border: 1px solid var(--line); color: var(--text); text-decoration: none;
+    padding: 6px 10px; border-radius: 5px; font-size: 12px; }
+  .actions a.btn:hover { border-color: var(--accent); }
+  .actions input { width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 7px; font-size: 12px;
+    font-family: var(--mono); }
+  .row2 { display: flex; gap: 6px; }
+  .row2 > * { flex: 1; }
+
+  .panel { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; margin-bottom: 14px; }
+  .ptitle { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  .panel label { display: block; font-size: 12px; color: var(--sub); margin: 8px 0 3px; }
+  .panel input, .panel textarea { width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font-size: 12.5px;
+    font-family: inherit; }
+  .panel input[type=number] { width: 90px; }
+  .panel .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .foot { color: var(--sub); font-size: 11.5px; margin-top: 16px; line-height: 1.7; }
+  @media (max-width: 760px) { .card { grid-template-columns: 56px 1fr; } .actions { grid-column: 1 / -1; } }
+</style>
+</head>
+<body>
+
+<h1><span class="delta">Δ</span> 注文管理</h1>
+<div class="tagline">Amazonで売れた注文の仕入れ・発送・キャンセルを管理 ／ <a href="arbitrage.html">← デルタサーチに戻る</a></div>
+
+<div class="topbar">
+  <button class="primary" id="refreshBtn" onclick="refresh()">注文を更新</button>
+  <button class="ghost" onclick="togglePanel('cfgBox')">⚙ 設定</button>
+  <span id="status">読み込み中…</span>
+</div>
+
+<div id="cfgBox" class="panel" style="display:none">
+  <div class="ptitle">設定</div>
+  <div class="grid">
+    <div>
+      <label>倉庫の宛先（メルカリの配送先に登録しておくもの）</label>
+      <textarea id="whAddr" rows="4" placeholder="〒000-0000&#10;東京都○○区○○ 1-2-3 ○○倉庫&#10;合同会社YOLO 気付&#10;電話 000-0000-0000"></textarea>
+      <label>出品者への取引メッセージ（購入直後に送る）</label>
+      <textarea id="msgTpl" rows="4"></textarea>
+    </div>
+    <div>
+      <label>販売手数料</label><input type="number" id="feePct" value="10" min="0" max="30"> %
+      <label>送料＋倉庫費（1件あたり）</label><input type="number" id="shipCost" value="800" min="0" step="100"> 円
+      <label>キャンセル処理までの日数</label><input type="number" id="cancelDays" value="7" min="1" max="30"> 日
+      <label>自動更新の間隔</label><input type="number" id="pollMin" value="5" min="1" max="60"> 分
+    </div>
+  </div>
+  <div style="margin-top:12px;text-align:right">
+    <button class="primary" onclick="saveCfg();togglePanel('cfgBox')" style="padding:6px 18px">保存して閉じる</button>
+  </div>
+</div>
+
+<!-- 1. 買う -->
+<div class="section">
+  <div class="sechead"><h2>1. 買う</h2><span class="n" id="nBuy">0件</span>
+    <span class="n">メルカリで購入 → 「仕入れ済み」を押す</span></div>
+  <div id="buyList"></div>
+</div>
+
+<!-- 2. 送る -->
+<div class="section">
+  <div class="sechead"><h2>2. 送る</h2><span class="n" id="nShip">0件</span>
+    <span class="n">倉庫から発送されたら追跡番号を入れて「発送済み」</span></div>
+  <div id="shipList"></div>
+</div>
+
+<!-- 3. キャンセル -->
+<div class="section">
+  <div class="sechead"><h2>3. キャンセル</h2><span class="n" id="nCancel">0件</span>
+    <span class="n">品切れの注文。日数が来たらセラーセントラルでキャンセル</span></div>
+  <div id="cancelList"></div>
+</div>
+
+<div class="foot">
+  経過日数はAmazonの注文日から数えています。管理番号が <span style="font-family:var(--mono)">m_◯◯-金額</span> の形なら、仕入れ元と仕入れ値を自動で読み取ります。<br>
+  発送済みにした注文はこの画面から消えます。Amazon側の発送済み登録はセラーセントラルで行ってください。
+</div>
+
+<script>
+const WORKER = "https://arbitrage-ai.elle-71-boc.workers.dev";
+const SC_ORDER = id => `https://sellercentral.amazon.co.jp/orders-v3/order/${id}`;
+const $ = id => document.getElementById(id);
+
+// ---- 設定 ----
+const DEFAULT_MSG = `ご購入させていただきました。よろしくお願いいたします。
+発送先は登録住所のとおり「{倉庫名}」宛でお願いいたします。
+お手数ですが、宛名に「{注文番号}」を添えていただけますと助かります。`;
+const cfg = JSON.parse(localStorage.getItem("od_cfg") || "{}");
+$("whAddr").value = cfg.whAddr || "";
+$("msgTpl").value = cfg.msgTpl || DEFAULT_MSG;
+$("feePct").value = cfg.feePct ?? 10;
+$("shipCost").value = cfg.shipCost ?? 800;
+$("cancelDays").value = cfg.cancelDays ?? 7;
+$("pollMin").value = cfg.pollMin ?? 5;
+function saveCfg() {
+  localStorage.setItem("od_cfg", JSON.stringify({
+    whAddr: $("whAddr").value, msgTpl: $("msgTpl").value,
+    feePct: +$("feePct").value, shipCost: +$("shipCost").value,
+    cancelDays: +$("cancelDays").value, pollMin: +$("pollMin").value,
+  }));
+  render(); schedule();
+}
+function togglePanel(id) { const b = $(id); b.style.display = b.style.display === "none" ? "block" : "none"; }
+
+// ---- 注文ごとの進捗（ブラウザに保存） ----
+//   state: new（未仕入れ）/ bought（仕入れ済み）/ soldout（品切れ）/ shipped（発送済み）
+let track = JSON.parse(localStorage.getItem("od_track") || "{}");
+function saveTrack() { localStorage.setItem("od_track", JSON.stringify(track)); }
+function t(id) { return track[id] || (track[id] = { state: "new" }); }
+
+let orders = [];
+let timer = null;
+
+function parseSku(sku) {
+  const m = String(sku || "").match(/^m_(m\d+)-(\d+)$/);
+  return m ? { mid: m[1], cost: parseInt(m[2], 10) } : { mid: null, cost: null };
+}
+function setStatus(html) { $("status").innerHTML = html; }
+function yen(n) { return n == null ? "—" : "¥" + Math.round(n).toLocaleString(); }
+
+// ---- 取得 ----
+async function refresh() {
+  $("refreshBtn").disabled = true;
+  setStatus("注文を取得中…");
+  try {
+    const res = await fetch(`${WORKER}/orders`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    orders = data.orders;
+
+    // 仕入れ元の生存確認（未仕入れ・品切れ扱いの注文だけ）
+    let n = 0;
+    for (const o of orders) {
+      const tr = t(o.orderId);
+      if (tr.state === "shipped" || tr.state === "bought") continue;
+      const { mid } = parseSku(o.items[0]?.sku);
+      if (!mid) continue;
+      n++;
+      setStatus(`仕入れ元を確認中… ${n}件目（${mid}）`);
+      try {
+        const r = await fetch(`${WORKER}/mercari-item?id=${mid}`);
+        const d = await r.json();
+        tr.alive = !!d.alive; tr.curPrice = d.price ?? null; tr.checkedAt = Date.now();
+        tr.mTitle = d.title || "";
+      } catch (e) { tr.alive = null; }
+      render();
+      await new Promise(r => setTimeout(r, 400));
+    }
+    saveTrack();
+    render();
+    setStatus(`更新完了 ${new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}　未出荷 ${orders.length}件`);
+    document.title = `${orders.filter(o => t(o.orderId).state !== "shipped").length ? "●" : ""} 注文管理 | デルタサーチ`;
+  } catch (e) {
+    setStatus(`<span class="err">エラー: ${e.message}</span>`);
+  } finally {
+    $("refreshBtn").disabled = false;
+  }
+}
+function schedule() {
+  if (timer) clearInterval(timer);
+  timer = setInterval(refresh, Math.max(1, +$("pollMin").value) * 60000);
+}
+
+// ---- 操作 ----
+function mark(id, state) {
+  const tr = t(id);
+  tr.state = state;
+  if (state === "bought") tr.boughtAt = Date.now();
+  if (state === "soldout") tr.soldoutAt = Date.now();
+  if (state === "shipped") tr.shippedAt = Date.now();
+  saveTrack(); render();
+}
+function setTracking(id, v) { t(id).tracking = v.trim(); saveTrack(); }
+function copyText(text, label) {
+  navigator.clipboard.writeText(text).then(() => setStatus(`${label}をコピーしました`));
+}
+function copyMsg(id) {
+  const wh = $("whAddr").value.split("\n").filter(Boolean);
+  const whName = wh.length >= 2 ? wh[wh.length - 2] : (wh[0] || "倉庫");
+  copyText($("msgTpl").value.replace(/\{倉庫名\}/g, whName).replace(/\{注文番号\}/g, id), "取引メッセージ");
+}
+
+// ---- 表示 ----
+function calc(o) {
+  const it = o.items[0] || {};
+  const { mid, cost } = parseSku(it.sku);
+  const tr = t(o.orderId);
+  const fee = (+$("feePct").value || 0) / 100, ship = +$("shipCost").value || 0;
+  const sale = o.total || it.price || 0;
+  const buy = tr.curPrice ?? cost;
+  const profit = (buy != null) ? Math.round(sale * (1 - fee) - ship - buy) : null;
+  return { it, mid, cost, tr, sale, buy, profit };
+}
+
+function cardBuy(o) {
+  const { it, mid, cost, tr, sale, buy, profit } = calc(o);
+  const priceUp = tr.curPrice != null && cost != null && tr.curPrice > cost;
+  let stock;
+  if (!mid) stock = `<span class="stock wait">管理番号から仕入れ元を読めません</span>`;
+  else if (tr.alive === false) stock = `<span class="stock ng">売り切れ</span>`;
+  else if (tr.alive === true && priceUp) stock = `<span class="stock up">値上がり +${yen(tr.curPrice - cost)}</span>`;
+  else if (tr.alive === true) stock = `<span class="stock ok">買える</span>`;
+  else stock = `<span class="stock wait">未確認</span>`;
+  const cls = tr.alive === false ? "urgent" : (priceUp ? "warn" : "");
+
+  return `<div class="card ${cls}">
+    <div class="days"><b>${o.days}</b><span>日経過</span></div>
+    <div class="info">
+      ${stock}
+      <div class="ttl">${it.title || "（商品名なし）"}${o.items.length > 1 ? ` <span class="minus">＋${o.items.length - 1}点</span>` : ""}</div>
+      <div class="meta">注文 <b>${o.orderId}</b>　${o.purchaseDate.slice(0, 10)}　管理番号 <b>${it.sku || "—"}</b></div>
+      <div class="money">
+        <div>売価<b>${yen(sale)}</b></div>
+        <div>仕入れ値<b class="${priceUp ? "warnc" : ""}">${yen(buy)}</b></div>
+        <div>手数料＋送料<b>${yen(sale * (+$("feePct").value / 100) + +$("shipCost").value)}</b></div>
+        <div>利益<b class="${profit > 0 ? "plus" : "minus"}">${profit != null ? (profit > 0 ? "+" : "") + yen(profit) : "—"}</b></div>
+      </div>
+    </div>
+    <div class="actions">
+      ${mid ? `<a class="btn" href="https://jp.mercari.com/item/${mid}" target="_blank">メルカリで開く</a>` : ""}
+      <div class="row2">
+        <button class="ghost" onclick="copyText($('whAddr').value,'倉庫の宛先')">宛先をコピー</button>
+        <button class="ghost" onclick="copyMsg('${o.orderId}')">メッセージ</button>
+      </div>
+      <button class="ok" onclick="mark('${o.orderId}','bought')">仕入れ済みにする</button>
+      <button class="ng" onclick="mark('${o.orderId}','soldout')">品切れにする</button>
+    </div>
+  </div>`;
+}
+
+function cardShip(o) {
+  const { it, tr, sale, profit } = calc(o);
+  const since = tr.boughtAt ? Math.floor((Date.now() - tr.boughtAt) / 86400000) : 0;
+  return `<div class="card ${o.days >= +$("cancelDays").value ? "warn" : ""}">
+    <div class="days"><b>${o.days}</b><span>日経過</span></div>
+    <div class="info">
+      <div class="ttl">${it.title || ""}</div>
+      <div class="meta">注文 <b>${o.orderId}</b>　仕入れから ${since}日　利益見込み <b class="${profit > 0 ? "plus" : "minus"}">${yen(profit)}</b></div>
+    </div>
+    <div class="actions">
+      <input placeholder="追跡番号（倉庫から届いたら入力）" value="${tr.tracking || ""}" onchange="setTracking('${o.orderId}', this.value)">
+      <a class="btn" href="${SC_ORDER(o.orderId)}" target="_blank">セラーセントラルで発送済み登録</a>
+      <div class="row2">
+        <button class="ghost" onclick="mark('${o.orderId}','new')">戻す</button>
+        <button class="ok" onclick="mark('${o.orderId}','shipped')">発送済み</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function cardCancel(o) {
+  const { it, tr, mid } = calc(o);
+  const limit = +$("cancelDays").value;
+  const due = o.days >= limit;
+  return `<div class="card ${due ? "urgent" : ""}">
+    <div class="days"><b>${o.days}</b><span>日経過</span></div>
+    <div class="info">
+      <span class="stock ${due ? "ng" : "wait"}">${due ? "今すぐキャンセル処理" : `あと ${limit - o.days} 日待つ`}</span>
+      <div class="ttl">${it.title || ""}</div>
+      <div class="meta">注文 <b>${o.orderId}</b>　${o.purchaseDate.slice(0, 10)}</div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="${SC_ORDER(o.orderId)}" target="_blank">セラーセントラルで開く</a>
+      ${mid ? `<a class="btn" href="https://jp.mercari.com/search?keyword=${encodeURIComponent((it.title || "").slice(0, 30))}&status=on_sale" target="_blank">代替品をメルカリで探す</a>` : ""}
+      <div class="row2">
+        <button class="ghost" onclick="mark('${o.orderId}','new')">買えた（戻す）</button>
+        <button class="ng" onclick="mark('${o.orderId}','shipped')">キャンセル済み</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const buy = [], ship = [], cancel = [];
+  for (const o of orders) {
+    const s = t(o.orderId).state;
+    if (s === "shipped") continue;
+    if (s === "bought") ship.push(o);
+    else if (s === "soldout") cancel.push(o);
+    else buy.push(o);
+  }
+  const bySoon = (a, b) => b.days - a.days;
+  buy.sort(bySoon); ship.sort(bySoon); cancel.sort(bySoon);
+
+  $("nBuy").textContent = `${buy.length}件`;
+  $("nShip").textContent = `${ship.length}件`;
+  $("nCancel").textContent = `${cancel.length}件`;
+  $("buyList").innerHTML = buy.length ? buy.map(cardBuy).join("") : `<div class="empty">仕入れ待ちの注文はありません</div>`;
+  $("shipList").innerHTML = ship.length ? ship.map(cardShip).join("") : `<div class="empty">発送待ちの注文はありません</div>`;
+  $("cancelList").innerHTML = cancel.length ? cancel.map(cardCancel).join("") : `<div class="empty">品切れの注文はありません</div>`;
+}
+
+render();
+refresh();
+schedule();
+</script>
+</body>
+</html>
